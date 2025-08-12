@@ -1,8 +1,8 @@
 [tool.poetry]
-name = "lingua"
+name = "A2A_showcase"
 version = "0.1.0"
-description = "A package to extract scopes using NLP"
-authors = ["Olusanmi Hundogan <o.hundogan@gmail.com>"]
+description = "A2A showcase"
+authors = ["Olusanmi Hundogan <o.hundogan@ohcm.nl>"]
 license = "OHCM B.V. License"
 readme = "README.md"
 
@@ -14,20 +14,6 @@ cloudpickle = "^3.0.0"
 rich = "^14.0.0"
 pyyaml = "^6.0.2"
 
-[tool.poetry.group.extractor.dependencies]
-pdfminer-six = "^20221105"
-tabula-py = "^2.7.0"
-pymupdf = "^1.24.5"
-pdfplumber = "^0.10.1"
-faiss-cpu = "^1.7.4"
-html2text = "^2020.1.16"
-nltk = "^3.8.1"
-tqdm = "^4.65.0"
-pandas = "^2.0.2"
-optuna = "^3.2.0"
-colorlog = "^6.7.0"
-requests = "^2.31.0"
-scikit-learn = "^1.2.2"
 
 [tool.poetry.group.agent.dependencies]
 langchain = "^0.3.0"
