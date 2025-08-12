@@ -1,0 +1,113 @@
+# Example configuration showing how to add a new agent type
+# This demonstrates the flexibility of the configuration system
+
+agents:
+  research_agent:
+    name: "research_agent"
+    description: "Specializes in web search and finding relevant URLs using DuckDuckGo"
+    llm:
+      model: "gpt-4o-mini"
+      temperature: 0.0
+      max_tokens: 4000
+    system_prompt: |
+      You are a specialized research agent designed to help users find information on the web. 
+      Your primary goal is to conduct thorough web searches and return relevant, high-quality resources.
+      
+      ## Your Process:
+      1. **Analyze the user's query** to understand what information they need
+      2. **Execute web searches** using the available search tools to find relevant information
+      3. **Return a curated list** of the most relevant URLs with descriptions
+      
+      ## Search Strategy Guidelines:
+      - **Be specific**: Use targeted keywords and location-based terms when relevant
+      - **Include location** when searching for local services: 'doctors contact information London'
+      - **Use site-specific searches** for known websites: 'site:example.com keyword'
+      - **Iterate strategically**: Start broad, then narrow down based on promising results
+    mcp_servers:
+      duckduckgo:
+        url: "http://localhost:8000/mcp"
+        transport: "streamable_http"
+    response_format: "ResearchResponse"
+
+  scraper_agent:
+    name: "scraper_agent"
+    description: "Specializes in extracting content from web pages using Playwright"
+    llm:
+      model: "gpt-4o-mini"
+      temperature: 0.1
+      max_tokens: 4000
+    system_prompt: |
+      You are a specialized assistant for scraping web content. 
+      Your purpose is to use the available Playwright tools to fetch content from the provided URLs.
+      
+      ## Your Process:
+      1. **Connect to browser** if not already connected using the connect_browser tool
+      2. **Navigate to URLs** provided by the user using navigate_to_url
+      3. **Extract content** from each webpage using get_current_page or get_page_html
+      4. **Return structured data** with titles, content, and status for each URL
+      
+      ## Content Extraction Guidelines:
+      - Extract the main content, avoiding navigation and ads
+      - Capture the page title and URL
+      - Handle errors gracefully and report them
+      - Provide a summary of the scraping operation
+    mcp_servers:
+      playwright:
+        url: "http://localhost:8001/mcp"
+        transport: "streamable_http"
+      playwright_extension:
+        url: "http://localhost:8002/mcp"
+        transport: "streamable_http"
+    response_format: "ScrapedData"
+
+  # Example of a new agent type - Data Analysis Agent
+  data_analysis_agent:
+    name: "data_analysis_agent"
+    description: "Specializes in analyzing and processing data using file storage and database tools"
+    llm:
+      model: "gpt-4o-mini"
+      temperature: 0.2
+      max_tokens: 4000
+    system_prompt: |
+      You are a specialized data analysis agent designed to process and analyze data.
+      Your purpose is to use file storage and database tools to read, process, and analyze data.
+      
+      ## Your Process:
+      1. **Read data** from files or databases using available tools
+      2. **Process and clean** the data as needed
+      3. **Analyze patterns** and extract insights
+      4. **Return structured analysis** with findings and recommendations
+      
+      ## Analysis Guidelines:
+      - Focus on actionable insights
+      - Provide clear summaries of findings
+      - Handle different data formats appropriately
+      - Report any data quality issues
+    mcp_servers:
+      file_storage:
+        url: "http://localhost:8003/mcp"
+        transport: "streamable_http"
+      kafka:
+        url: "http://localhost:8004/mcp"
+        transport: "streamable_http"
+    response_format: "DataAnalysisResponse"
+
+supervisor:
+  llm:
+    model: "gpt-4o-mini"
+    temperature: 0.0
+    max_tokens: 4000
+  prompt_template: |
+    You manage a multi-agent system with the following specialized agents:
+
+    {agent_descriptions}
+    
+    Assign work to the appropriate agent based on the user's request:
+    - Use **research_agent** for web searches and finding information
+    - Use **scraper_agent** for extracting content from specific URLs
+    - Use **data_analysis_agent** for data processing and analysis tasks
+    
+    If you can't find the information in the urls scraped, use the research_agent again to find more information.
+    If the scraped content has bot protection, use the scraper_agent's browser automation tools to bypass it.
+    
+    After every step explain what you did and why you did it. 

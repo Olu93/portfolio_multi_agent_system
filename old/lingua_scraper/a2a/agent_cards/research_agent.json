@@ -1,0 +1,42 @@
+{
+    "name": "Research Agent",
+    "description": "Research the web for scrapable data",
+    "url": "http://localhost:10102/",
+    "provider": null,
+    "version": "1.0.0",
+    "documentationUrl": null,
+    "capabilities": {
+        "streaming": "True",
+        "pushNotifications": "True",
+        "stateTransitionHistory": "False"
+    },
+    "authentication": {
+        "credentials": null,
+        "schemes": [
+            "public"
+        ]
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain"
+    ],
+    "skills": [
+        {
+            "id": "research",
+            "name": "Research",
+            "description": "Research the web for scrapable data",
+            "tags": [
+                "research"
+            ],
+            "examples": [
+                "Research the web for real estate buyable in the city of Rotterdam"
+            ],
+            "inputModes": null,
+            "outputModes": null
+        }
+    ]
+}
