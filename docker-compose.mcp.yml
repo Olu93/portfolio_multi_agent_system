@@ -1,0 +1,224 @@
+version: '3.8'
+
+services:
+  mcp-inspector:
+    build:
+      context: .
+      dockerfile: Dockerfile.npx
+      args:
+        NPX_PACKAGE: "@modelcontextprotocol/inspector"  
+    container_name: mcp-inspector
+    environment:
+      - HOST=0.0.0.0
+      - DANGEROUSLY_OMIT_AUTH=true 
+      # - MCP_PROXY_AUTH_TOKEN=${MCP_PROXY_AUTH_TOKEN} # TODO: Use this instead. FOLLOW-UP: Doesn't work.
+      - MCP_PROXY_FULL_ADDRESS=http://mcp-inspector:6277
+      - ALLOWED_ORIGINS=http://localhost:6274,http://localhost:8000
+      - MCP_AUTO_OPEN_ENABLED=false
+    ports:
+      - "8000:6274"
+      - "6277:6277"      
+    volumes:
+      - ./lingua_scraper:/app/lingua_scraper
+      - ./configs/sensitive/config.inspector.json:/app/config.inspector.json
+    working_dir: /app/lingua_scraper/mcp
+    command: npx @modelcontextprotocol/inspector --config /app/config.inspector.json --server default-storage
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
+  mcp-jam-inspector:
+    image: mcpjam/mcp-inspector:latest
+    container_name: mcp-jam-inspector
+
+    ports:
+      - "9000:3001"
+    volumes:
+      - ./lingua_scraper:/app/lingua_scraper
+      - ./configs/sensitive/config.inspector.json:/app/config.inspector.json
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
+  serper-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "mcp"
+    container_name: serper-mcp-server
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8005
+      - SERPER_API_KEY=${SERPER_API_KEY}
+      - PYTHONPATH=/app
+    ports:
+      - "8005:8005"
+    volumes:
+      - ./lingua_scraper:/app/lingua_scraper
+    working_dir: /app/lingua_scraper/mcp
+    command: python serper.py
+    # command: python serper-official.py
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
+  duckduckgo-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "mcp"
+    container_name: duckduckgo-mcp-server
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8001
+      - PYTHONPATH=/app
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./lingua_scraper:/app/lingua_scraper
+    working_dir: /app/lingua_scraper/mcp
+    command: python duckduckgo.py
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
+  playwright-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
+    container_name: playwright-mcp-server
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8002
+      - PLAYWRIGHT_BROWSER_WS_ENDPOINT=${PLAYWRIGHT_BROWSER_WS_ENDPOINT:-ws://host.docker.internal:9222}
+      - PYTHONPATH=/app
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./lingua_scraper:/app/lingua_scraper
+      - ./screenshots:/app/screenshots
+    working_dir: /app/lingua_scraper/mcp
+    command: python playwright_extension.py
+    restart: unless-stopped
+    networks:
+      - mcp-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  file-storage-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "mcp"
+    container_name: file-storage-mcp-server
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8003
+      - PYTHONPATH=/app
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./lingua_scraper:/app/lingua_scraper
+      - ./files:/app/files
+    working_dir: /app/lingua_scraper/mcp
+    command: python file_storage.py
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
+  kafka-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "kafka"
+    container_name: kafka-mcp-server
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8004
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - PYTHONPATH=/app
+    ports:
+      - "8004:8004"
+    volumes:
+      - ./lingua_scraper:/app/lingua_scraper
+    working_dir: /app/lingua_scraper/mcp
+    command: python kafka.py
+    restart: unless-stopped
+    networks:
+      - mcp-network
+    depends_on:
+      - kafka
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-mcp
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_DELETE_TOPIC_ENABLE: 'true'
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+    volumes:
+      - kafka-data:/tmp/kraft-combined-logs
+    networks:
+      - mcp-network
+
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb-mcp
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-password}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-lingua}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - mcp-network
+
+  postgres:
+    image: postgres:17
+    container_name: postgres-mcp
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lingua}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - mcp-network
+
+networks:
+  mcp-network:
+    driver: bridge
+
+volumes:
+  kafka-data:
+  mongodb-data:
+  postgres-data:

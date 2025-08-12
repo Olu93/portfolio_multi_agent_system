@@ -1,0 +1,80 @@
+[tool.poetry]
+name = "lingua"
+version = "0.1.0"
+description = "A package to extract scopes using NLP"
+authors = ["Olusanmi Hundogan <o.hundogan@gmail.com>"]
+license = "OHCM B.V. License"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pydantic = "^2.7.4"
+python-dotenv = "^1.0.0"
+cloudpickle = "^3.0.0"
+rich = "^14.0.0"
+pyyaml = "^6.0.2"
+
+[tool.poetry.group.extractor.dependencies]
+pdfminer-six = "^20221105"
+tabula-py = "^2.7.0"
+pymupdf = "^1.24.5"
+pdfplumber = "^0.10.1"
+faiss-cpu = "^1.7.4"
+html2text = "^2020.1.16"
+nltk = "^3.8.1"
+tqdm = "^4.65.0"
+pandas = "^2.0.2"
+optuna = "^3.2.0"
+colorlog = "^6.7.0"
+requests = "^2.31.0"
+scikit-learn = "^1.2.2"
+
+[tool.poetry.group.agent.dependencies]
+langchain = "^0.3.0"
+langchain-openai = "^0.2.0"
+langchain-community = "^0.3.0"
+streamlit = "^1.45.1"
+langgraph = "^0.5"
+langgraph-supervisor = "^0.0.27"
+pydantic-settings = "^2.10.1"
+a2a-sdk = "^0.2.8"
+python-a2a = "^0.5.9"
+
+[tool.poetry.group.mcp.dependencies]
+fastmcp = "^2.11.1"
+duckduckgo-search = "^8.0.3"
+bs4 = "^0.0.2"
+serpapi = "^0.1.5"
+langchain = "^0.3.27"
+langchain-community = "^0.3.27"
+
+[tool.poetry.group.playwright.dependencies]
+playwright = "^1.40.0"
+pytest-playwright = "^0.7.0"
+crawl4ai = "^0.6.3"
+
+[tool.poetry.group.kafka.dependencies]
+kafka = "^1.3.5"
+kafka-python = "^2.2.14"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.3.1"
+yapf = "^0.40.0"
+pylint = "^2.17.4"
+ipykernel = "^6.29.5"
+
+
+
+
+
+
+
+
+
+[tool.yapf]
+based_on_style = "pep8"
+column_limit = 150
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

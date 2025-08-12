@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1.4
+
+#############################
+# 🛠 Builder Stage
+#############################
+FROM node:alpine3.22 AS builder
+ARG NPX_PACKAGE=""
+
+# Check if NPX_PACKAGE is provided
+RUN if [ -z "$NPX_PACKAGE" ]; then \
+        echo "ERROR: NPX_PACKAGE build argument is required but not provided"; \
+        echo "Please provide NPX_PACKAGE when building the image"; \
+        exit 1; \
+    fi
+
+# install certs for npm and fetch NPX_PACKAGE
+RUN apk add --no-cache ca-certificates \
+ && npm install -g $NPX_PACKAGE
+
+#############################
+# 🚀 Final Stage
+#############################
+FROM node:alpine3.22
+WORKDIR /app
+
+# copy only the global modules and executables
+COPY --from=builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# copy only the CA cert bundle
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# verify installation
+CMD ["npx", "--version"]
