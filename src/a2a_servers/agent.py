@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
+from typing import Any, AsyncIterable, Literal
 import click
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
@@ -25,18 +26,109 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
 from a2a.server.apps import A2AStarletteApplication
 from langchain_mcp_adapters.client import MultiServerMCPClient
-
+from langchain_core.messages import AIMessage, ToolMessage
 import uvicorn
 
-from constants import AGENT_CONFIG
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnableLambda
-from langchain_core.runnables import RunnablePassthrough
-from langchain_core.runnables import RunnablePassthrough
+from a2a_servers.constants import AGENT_CONFIG
 from langgraph.prebuilt import create_react_agent
+from langgraph.checkpoint.memory import InMemorySaver
 
 logger = logging.getLogger(__name__)
+
+memory = InMemorySaver()
+
+
+class ResponseFormat(BaseModel):
+    """Respond to the user in this format."""
+
+    status: Literal['input_required', 'completed', 'error'] = 'input_required'
+    message: str
+
+
+class Agent:
+    """CurrencyAgent - a specialized assistant for currency convesions."""
+
+
+    FORMAT_INSTRUCTION = (
+        'Set response status to input_required if the user needs to provide more information to complete the request.'
+        'Set response status to error if there is an error while processing the request.'
+        'Set response status to completed if the request is complete.'
+    )
+
+    def __init__(self, model, tools, prompt):
+        self.model = model
+        self.tools = tools
+        self.prompt = prompt
+
+        self.graph = create_react_agent(
+            self.model,
+            tools=self.tools,
+            checkpointer=memory,
+            prompt=self.prompt,
+            response_format=(self.FORMAT_INSTRUCTION, ResponseFormat),
+        )
+
+    async def stream(self, query, context_id) -> AsyncIterable[dict[str, Any]]:
+        inputs = {'messages': [('user', query)]}
+        config = {'configurable': {'thread_id': context_id}}
+
+        for item in self.graph.stream(inputs, config, stream_mode='values'):
+            message = item['messages'][-1]
+            if (
+                isinstance(message, AIMessage)
+                and message.tool_calls
+                and len(message.tool_calls) > 0
+            ):
+                yield {
+                    'is_task_complete': False,
+                    'require_user_input': False,
+                    'content': 'Processing the request...',
+                }
+            elif isinstance(message, ToolMessage):
+                yield {
+                    'is_task_complete': False,
+                    'require_user_input': False,
+                    'content': 'Executing the tool...',
+                }
+
+        yield self.get_agent_response(config)
+
+    def get_agent_response(self, config):
+        current_state = self.graph.get_state(config)
+        structured_response = current_state.values.get('structured_response')
+        if structured_response and isinstance(
+            structured_response, ResponseFormat
+        ):
+            if structured_response.status == 'input_required':
+                return {
+                    'is_task_complete': False,
+                    'require_user_input': True,
+                    'content': structured_response.message,
+                }
+            if structured_response.status == 'error':
+                return {
+                    'is_task_complete': False,
+                    'require_user_input': True,
+                    'content': structured_response.message,
+                }
+            if structured_response.status == 'completed':
+                return {
+                    'is_task_complete': True,
+                    'require_user_input': False,
+                    'content': structured_response.message,
+                }
+
+        return {
+            'is_task_complete': False,
+            'require_user_input': True,
+            'content': (
+                'We are unable to process your request at the moment. '
+                'Please try again.'
+            ),
+        }
+
+    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']
+
 
 
 class BaseAgentExecutor(AgentExecutor):
@@ -44,7 +136,7 @@ class BaseAgentExecutor(AgentExecutor):
 
     def __init__(
         self,
-        agent: BaseChatModel,
+        agent: Agent,
         status_message: str = "Processing request...",
         artifact_name: str = "response",
     ):
@@ -67,49 +159,37 @@ class BaseAgentExecutor(AgentExecutor):
         updater = TaskUpdater(event_queue, task.id, task.contextId)
 
         try:
-            # Update status with custom message
-            await updater.update_status(
-                TaskState.working,
-                new_agent_text_message(self.status_message, task.contextId, task.id),
-            )
+            async for item in self.agent.stream(query, task.context_id):
+                is_task_complete = item['is_task_complete']
+                require_user_input = item['require_user_input']
 
-            # Process with agent using the common interface
-            response_text = await self.agent.ainvoke(query)
-            # Take messages and convert to text parts
-
-            if isinstance(response_text, str):
-                text_parts = [Part(root=TextPart(text=response_text))]
-            else:
-                messages = response_text.get("messages")
-                text_parts = (
-                    [Part(root=TextPart(text=message.content)) for message in messages]
-                    if messages
-                    else []
-                )
-
-                # Take structured response and convert to data part
-                structured_response: BaseModel = response_text.get(
-                    "structured_response"
-                )
-                data_parts = (
-                    [
-                        Part(
-                            root=DataPart(
-                                data=structured_response.model_dump(mode="python")
-                            )
-                        )
-                    ]
-                    if structured_response
-                    else []
-                )
-
-            # Add response as artifact with custom name
-            await updater.add_artifact(
-                text_parts + data_parts,
-                name=self.artifact_name,
-            )
-
-            await updater.complete()
+                if not is_task_complete and not require_user_input:
+                    await updater.update_status(
+                        TaskState.working,
+                        new_agent_text_message(
+                            item['content'],
+                            task.context_id,
+                            task.id,
+                        ),
+                    )
+                elif require_user_input:
+                    await updater.update_status(
+                        TaskState.input_required,
+                        new_agent_text_message(
+                            item['content'],
+                            task.context_id,
+                            task.id,
+                        ),
+                        final=True,
+                    )
+                    break
+                else:
+                    await updater.add_artifact(
+                        [Part(root=TextPart(text=item['content']))],
+                        name='conversion_result',
+                    )
+                    await updater.complete()
+                    break
 
         except GraphRecursionError as e:
             logger.error(f"Error: {e!s}")
@@ -172,7 +252,8 @@ async def create_sub_agent(agent_name: str, host: str, port: int):
         agent_card = AgentCard(
             name=agent_config["name"],
             description=agent_config["description"],
-            url=f"http://{host}:{port}/",
+            # url=f"http://{host}:{port}/",
+            url=f"http://host.docker.internal:{port}/",
             version="1.0.0",
             defaultInputModes=["text", "text/plain"],
             defaultOutputModes=["text", "text/plain"],
@@ -180,19 +261,14 @@ async def create_sub_agent(agent_name: str, host: str, port: int):
             skills=skills,
         )
 
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+        model = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
 
         client = MultiServerMCPClient(tool_config_dict)
         tools = await client.get_tools()
 
         prompt = f"{meta_prompt}\n\n{prompt_file.read_text()}" if prompt_file.exists() else meta_prompt
 
-        agent = create_react_agent(
-            llm=llm,
-            tools=tools,
-            prompt=prompt,
-            output_parser=StrOutputParser(),
-        )
+        agent = Agent(model, tools, prompt)
 
         # Create executor with custom parameters
         executor = BaseAgentExecutor(
@@ -200,15 +276,18 @@ async def create_sub_agent(agent_name: str, host: str, port: int):
             status_message="Processing request...",
             artifact_name="response",
         )
-
-        return A2AStarletteApplication(agent_card=agent_card, http_handler=executor)
+        request_handler = DefaultRequestHandler(  
+            agent_executor=executor,  
+            task_store=InMemoryTaskStore()  
+        ) 
+        return A2AStarletteApplication(agent_card=agent_card, http_handler=request_handler)
     except Exception as e:
         logger.error(f"Error: {e!s}")
         raise e
 
 
 @click.command()
-@click.option("--agent-name", default="test_agent", help="Name of the agent to run")
+@click.option("--agent-name", default="web_search_agent", help="Name of the agent to run")
 @click.option("--host", default="localhost", help="Host to run the agent on")
 @click.option("--port", default=10020, help="Port to run the agent on")
 @click.option("--log-level", default="info", help="Log level to run the agent on")

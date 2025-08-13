@@ -1,4 +1,4 @@
-from __init__ import configure_logging
+from a2a_servers import configure_logging
 import os
 import yaml
 

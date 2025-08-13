@@ -8,6 +8,20 @@ sub_agents:
         mcp_server: 
           url: "http://localhost:8000"
           transport: "streamable_http"
+  web_search_agent:
+    name: "Web-Search-Agent"
+    description: "A agent that can use multiple web search tools such as DuckDuckGo, Serper and others"
+    tools:
+      - name: "DuckDuckGo"
+        description: "An agent that can search the web using DuckDuckGo"
+        mcp_server: 
+          url: "http://localhost:8001/mcp"
+          transport: "streamable_http"
+      - name: "Serper"
+        description: "An agent that can search the web using Serper"
+        mcp_server: 
+          url: "http://localhost:8005/mcp"
+          transport: "streamable_http"
   communication_agent: 
     name: "Communication-Agent"
     description: "A agent that can use multiple communication tools such as email, slack and others"

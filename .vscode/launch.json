@@ -1,0 +1,19 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Agent: Web Search",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "a2a_servers.agent",
+            "cwd": "${workspaceFolder}/src",
+            "args": [
+                "--agent-name",
+                "web_search_agent"
+            ]
+        }
+    ]
+}
