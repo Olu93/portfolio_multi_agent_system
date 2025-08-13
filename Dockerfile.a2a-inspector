@@ -1,0 +1,86 @@
+# syntax=docker/dockerfile:1.4
+
+#############################
+# 📥 Repository Clone Stage
+#############################
+FROM alpine:latest AS repo-clone
+
+# Install git and clean up
+RUN apk add --no-cache git && \
+    rm -rf /var/cache/apk/*
+
+# Clone the A2A Inspector repository
+RUN git clone https://github.com/a2aproject/a2a-inspector.git /app
+
+#############################
+# 🎨 Frontend Build Stage
+#############################
+FROM node:18-alpine AS frontend-builder
+WORKDIR /app
+
+# Copy the cloned frontend files
+COPY --from=repo-clone /app/frontend/package*.json ./
+COPY --from=repo-clone /app/frontend/tsconfig.json ./
+COPY --from=repo-clone /app/frontend/src ./src
+
+# Install dependencies (this will run prepare script which needs tsconfig.json and src/)
+RUN npm ci
+
+# Copy remaining frontend files
+COPY --from=repo-clone /app/frontend/ ./
+
+# Rebuild native dependencies like esbuild for the container's architecture (Alpine)
+# in case host node_modules were copied over.
+RUN npm rebuild esbuild
+
+# Build the frontend
+RUN npm run build
+
+#############################
+# 🐍 Backend Build Stage
+#############################
+FROM python:3.10-slim AS backend-builder
+WORKDIR /app
+
+# Install uv package manager
+RUN pip install uv
+
+# Copy backend dependency files from cloned repo
+COPY --from=repo-clone /app/pyproject.toml /app/uv.lock ./
+
+# Install Python dependencies
+RUN uv sync --no-cache
+
+# Install additional required packages
+RUN uv pip install validators
+
+#############################
+# 🚀 Final Runtime Stage
+#############################
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install uv package manager
+RUN pip install uv
+
+# Copy Python dependencies from builder
+COPY --from=backend-builder /usr/local/lib/python3.10 /usr/local/lib/python3.10
+COPY --from=backend-builder /usr/local/bin /usr/local/bin
+
+# Copy backend source from cloned repo
+COPY --from=repo-clone /app/backend/ ./backend/
+
+# Create frontend directory and copy built assets
+RUN mkdir -p /app/frontend
+COPY --from=frontend-builder /app/public /app/frontend/public
+
+# Set working directory to backend
+WORKDIR /app/backend
+
+# Expose the port the backend server runs on
+EXPOSE 8080
+
+# The command to run the server. Because our WORKDIR is now /app/backend,
+# we can simply refer to 'app:app' from the current directory.
+CMD ["uv", "run", "--", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]

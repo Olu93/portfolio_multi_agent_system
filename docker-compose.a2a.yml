@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  a2a-inspector:
+    build:
+      context: .
+      dockerfile: Dockerfile.a2a-inspector
+    container_name: ohcm_a2a_inspector
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8080
+      - PYTHONPATH=/app
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount your A2A agent servers for testing
+      - ./src/a2a_servers:/app/a2a_servers:ro
+      # Mount any additional config files
+      - ./config:/app/config:ro
+    working_dir: /app/backend
+    # command: ["uv", "run", "--", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
+    command: python app.py
+    # command: ls -la .
+    # restart: unless-stopped
+    networks:
+      - a2a-network
+
+networks:
+  a2a-network:
+    driver: bridge
+
+volumes:
+  a2a-config:
