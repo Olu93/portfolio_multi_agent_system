@@ -26,8 +26,8 @@ SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
-SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() == "true"
+# SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+# SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() == "true"
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", SMTP_USERNAME)
 
 
@@ -60,8 +60,8 @@ class SMTPServer:
         self.port = SMTP_PORT
         self.username = SMTP_USERNAME
         self.password = SMTP_PASSWORD
-        self.use_tls = SMTP_USE_TLS
-        self.use_ssl = SMTP_USE_SSL
+        # self.use_tls = SMTP_USE_TLS
+        # self.use_ssl = SMTP_USE_SSL
         
         # Validate configuration
         if not self.username or not self.password:
@@ -105,39 +105,13 @@ class SMTPServer:
             # Send email
             await ctx.info("Connecting to SMTP server...")
             
-            if self.use_ssl:
-                # Use SSL
-                await aiosmtplib.send(
+            await aiosmtplib.send(
                     msg,
                     hostname=self.host,
                     port=self.port,
                     username=self.username,
                     password=self.password,
-                    use_tls=False,
-                    start_tls=False,
-                    recipients=recipients
-                )
-            elif self.use_tls:
-                # Use STARTTLS
-                await aiosmtplib.send(
-                    msg,
-                    hostname=self.host,
-                    port=self.port,
-                    username=self.username,
-                    password=self.password,
-                    use_tls=False,
-                    start_tls=True,
-                    recipients=recipients
-                )
-            else:
-                # No encryption
-                await aiosmtplib.send(
-                    msg,
-                    hostname=self.host,
-                    port=self.port,
-                    username=self.username,
-                    password=self.password,
-                    use_tls=False,
+                    use_tls=True,
                     start_tls=False,
                     recipients=recipients
                 )
@@ -196,8 +170,8 @@ class SMTPServer:
                 "host": self.host,
                 "port": self.port,
                 "username": self.username,
-                "use_tls": self.use_tls,
-                "use_ssl": self.use_ssl,
+                # "use_tls": self.use_tls,
+                # "use_ssl": self.use_ssl,
                 "from_email": DEFAULT_FROM_EMAIL
             }
         except Exception as e:
