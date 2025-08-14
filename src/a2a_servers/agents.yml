@@ -1,7 +1,18 @@
+model_configs:
+  chat_gpt_4_mini: &CHATGPT_4O_MINI
+    name: "gpt-4o-mini"
+    provider: "openai"
+    parameters:
+      temperature: 0.0
+
+
+
+
 sub_agents:
   test_agent:
     name: "Test-Agent"
     description: "A test agent that can use multiple tools"
+    agent_url: "http://host.docker.internal:10020"
     tools:
       - name: "Test-Tool"
         description: "A test tool that can be used to test the agent"
@@ -11,6 +22,8 @@ sub_agents:
   web_search_agent:
     name: "Web-Search-Agent"
     description: "A agent that can use multiple web search tools such as DuckDuckGo, Serper and others"
+    agent_url: "http://host.docker.internal:10020"
+    model: *CHATGPT_4O_MINI
     tools:
       - name: "DuckDuckGo"
         description: "An agent that can search the web using DuckDuckGo"

@@ -28,6 +28,7 @@ from a2a.server.apps import A2AStarletteApplication
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import AIMessage, ToolMessage
 import uvicorn
+from langchain.chat_models import init_chat_model
 
 from a2a_servers.constants import AGENT_CONFIG
 from langgraph.prebuilt import create_react_agent
@@ -156,7 +157,7 @@ class BaseAgentExecutor(AgentExecutor):
         task = context.current_task or new_task(context.message)
         await event_queue.enqueue_event(task)
 
-        updater = TaskUpdater(event_queue, task.id, task.contextId)
+        updater = TaskUpdater(event_queue, task.id, task.context_id)
 
         try:
             async for item in self.agent.stream(query, task.context_id):
@@ -225,7 +226,7 @@ class BaseAgentExecutor(AgentExecutor):
         pass
 
 
-async def create_sub_agent(agent_name: str, host: str, port: int):
+async def create_sub_agent(agent_name: str):
     """
     Create a sub agent for the main agent based on the agents.yml file in which all the agents are registered.
     """
@@ -244,6 +245,7 @@ async def create_sub_agent(agent_name: str, host: str, port: int):
         capabilities = AgentCapabilities(streaming=False, pushNotifications=False)
         agent_config = AGENT_CONFIG["sub_agents"][agent_name]
         tool_config = agent_config.get("tools", [])
+        model_config = agent_config.get("model", {})	
         meta_prompt = agent_config.get("meta_prompt", "You are a helpful assistant that can use multiple tools")
         prompt_file = Path(agent_config.get("prompt_file", "default.txt"))
 
@@ -253,7 +255,7 @@ async def create_sub_agent(agent_name: str, host: str, port: int):
             name=agent_config["name"],
             description=agent_config["description"],
             # url=f"http://{host}:{port}/",
-            url=f"http://host.docker.internal:{port}/",
+            url=agent_config["agent_url"],
             version="1.0.0",
             defaultInputModes=["text", "text/plain"],
             defaultOutputModes=["text", "text/plain"],
@@ -261,7 +263,7 @@ async def create_sub_agent(agent_name: str, host: str, port: int):
             skills=skills,
         )
 
-        model = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+        model = init_chat_model(model_config["name"], **model_config["parameters"], model_provider=model_config["provider"])
 
         client = MultiServerMCPClient(tool_config_dict)
         tools = await client.get_tools()
@@ -288,11 +290,11 @@ async def create_sub_agent(agent_name: str, host: str, port: int):
 
 @click.command()
 @click.option("--agent-name", default="web_search_agent", help="Name of the agent to run")
-@click.option("--host", default="localhost", help="Host to run the agent on")
+@click.option("--host", default="0.0.0.0", help="Host to run the agent on")
 @click.option("--port", default=10020, help="Port to run the agent on")
 @click.option("--log-level", default="info", help="Log level to run the agent on")
 def run_agent_server(agent_name: str, host: str, port: int, log_level: str):
-    app = asyncio.run(create_sub_agent(agent_name, host, port))
+    app = asyncio.run(create_sub_agent(agent_name))
     uvicorn.run(
         app.build(),
         host=host,
