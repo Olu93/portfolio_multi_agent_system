@@ -14,6 +14,24 @@
                 "--agent-name",
                 "web_search_agent"
             ]
+        }, 
+
+        {
+            "name": "Execute MCP Server",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "mcp_servers.${fileBasenameNoExtension}",
+            "cwd": "${workspaceFolder}/src",
+            "env": {
+                "MCP_HOST": "0.0.0.0",
+                "MCP_PORT": "9999"
+            },
+            "args": [
+                "--host",
+                "${env:MCP_HOST}",
+                "--port",
+                "${env:MCP_PORT}"
+            ]
         }
     ]
 }
