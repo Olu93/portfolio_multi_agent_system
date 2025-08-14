@@ -39,6 +39,53 @@ services:
   #   networks:
   #     - mcp-network
 
+  yfinance-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "mcp"
+    container_name: ohcm_yfinance_mcp
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8007
+      - PYTHONPATH=/app
+    ports:
+      - "8007:8007"
+    volumes:
+      - ./src/mcp_servers:/app/mcp_servers
+    working_dir: /app/mcp_servers
+    command: python yahoo_finance.py
+    restart: unless-stopped
+    networks:
+      - mcp-network
+  smtp-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "mcp"
+    container_name: ohcm_smtp_mcp
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8006
+      - PYTHONPATH=/app
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      # - SMTP_USE_TLS=${SMTP_USE_TLS}
+      # - SMTP_USE_SSL=${SMTP_USE_SSL}
+      # - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL}
+    ports:
+      - "8006:8006"
+    volumes:
+      - ./src/mcp_servers:/app/mcp_servers
+    working_dir: /app/mcp_servers
+    command: python smtp.py
+    restart: unless-stopped
+    networks:
+      - mcp-network
   serper-mcp:
     build:
       context: .
