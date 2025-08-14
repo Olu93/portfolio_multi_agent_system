@@ -1,0 +1,4 @@
+name: "gpt-4o-mini"
+provider: "openai"
+parameters:
+  temperature: 0.0

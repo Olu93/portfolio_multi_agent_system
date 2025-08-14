@@ -1,0 +1,10 @@
+name: "Finance-Agent"
+description: "An agent that can gather finance information from the web"
+tools:
+  - name: "Yahoo Finance"
+    description: "An agent that can gather finance information from the web using Yahoo Finance"
+    mcp_server: 
+      url: "http://localhost:8007"
+      transport: "streamable_http"
+meta_prompt: "You are a helpful assistant that can gather finance information from the web"
+prompt_file: "prompts/finance_agent.txt"

@@ -1,0 +1,14 @@
+name: "Web-Search-Agent"
+description: "A agent that can use multiple web search tools such as DuckDuckGo, Serper and others"
+agent_url: "http://host.docker.internal:10020"
+tools:
+  - name: "DuckDuckGo"
+    description: "An agent that can search the web using DuckDuckGo"
+    mcp_server: 
+      url: "http://localhost:8001/mcp"
+      transport: "streamable_http"
+  - name: "Serper"
+    description: "An agent that can search the web using Serper"
+    mcp_server: 
+      url: "http://localhost:8005/mcp"
+      transport: "streamable_http"

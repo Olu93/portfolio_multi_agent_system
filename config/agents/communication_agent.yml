@@ -1,0 +1,11 @@
+name: "Communication-Agent"
+description: "A agent that can use multiple communication tools such as email, slack and others"
+agent_url: "http://host.docker.internal:10020"
+tools:
+  - name: "Email"
+    description: "An agent that can send and receive emails"
+    mcp_server: 
+      url: "http://localhost:8006"
+      transport: "streamable_http"
+meta_prompt: "You are a helpful assistant that can use multiple communication tools such as email, slack and others"
+prompt_file: "prompts/communication_agent.txt"

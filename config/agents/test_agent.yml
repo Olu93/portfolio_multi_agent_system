@@ -1,0 +1,9 @@
+name: "Test-Agent"
+description: "A test agent that can use multiple tools"
+agent_url: "http://host.docker.internal:10020"
+tools:
+  - name: "Test-Tool"
+    description: "A test tool that can be used to test the agent"
+    mcp_server: 
+      url: "http://localhost:8000"
+      transport: "streamable_http"

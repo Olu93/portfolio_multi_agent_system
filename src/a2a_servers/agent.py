@@ -30,6 +30,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 import uvicorn
 from langchain.chat_models import init_chat_model
 
+from a2a_servers.config_loader import load_agent_config, load_model_config, load_prompt_config
 from a2a_servers.constants import AGENT_CONFIG
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import InMemorySaver
@@ -243,11 +244,11 @@ async def create_sub_agent(agent_name: str):
         ]
 
         capabilities = AgentCapabilities(streaming=False, pushNotifications=False)
-        agent_config = AGENT_CONFIG["sub_agents"][agent_name]
+        agent_config = load_agent_config(agent_name)
         tool_config = agent_config.get("tools", [])
-        model_config = agent_config.get("model", {})	
+        model_config = load_model_config(agent_config.get("model", "default"))	
         meta_prompt = agent_config.get("meta_prompt", "You are a helpful assistant that can use multiple tools")
-        prompt_file = Path(agent_config.get("prompt_file", "default.txt"))
+        prompt_config = load_prompt_config(agent_config.get("prompt_file", f"{agent_name}.txt"))
 
         tool_config_dict = {tool["name"]: tool["mcp_server"] for tool in tool_config}
 
@@ -268,7 +269,7 @@ async def create_sub_agent(agent_name: str):
         client = MultiServerMCPClient(tool_config_dict)
         tools = await client.get_tools()
 
-        prompt = f"{meta_prompt}\n\n{prompt_file.read_text()}" if prompt_file.exists() else meta_prompt
+        prompt = f"{meta_prompt}\n\n{prompt_config}"
 
         agent = Agent(model, tools, prompt)
 
