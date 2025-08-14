@@ -1,0 +1,1 @@
+# https://github.com/nspady/google-calendar-mcp?tab=readme-ov-file
