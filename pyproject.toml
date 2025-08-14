@@ -39,6 +39,7 @@ langchain = "^0.3.27"
 langchain-community = "^0.3.27"
 aiosmtplib = "^3.0.1"
 yfinance = "^0.2.65"
+caldav = "^2.0.1"
 
 [tool.poetry.group.playwright.dependencies]
 playwright = "^1.40.0"
