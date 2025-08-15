@@ -1,32 +1,57 @@
 version: '3.8'
 
+
 services:
-  a2a-inspector:
+
+
+  # a2a-inspector:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.a2a-inspector
+  #   container_name: ohcm_a2a_inspector
+  #   environment:
+  #     - HOST=0.0.0.0
+  #     - PORT=8080
+  #     - PYTHONPATH=/app
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     # Mount your A2A agent servers for testing
+  #     - ./src/a2a_servers:/app/a2a_servers:ro
+  #     # Mount any additional config files
+  #     - ./config:/app/config:ro
+  #   working_dir: /app/backend
+  #   # command: ["uv", "run", "--", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
+  #   command: python app.py
+  #   # command: ls -la .
+  #   # restart: unless-stopped
+  #   networks:
+  #     - a2a-network
+
+  communication-agent:
     build:
       context: .
-      dockerfile: Dockerfile.a2a-inspector
-    container_name: ohcm_a2a_inspector
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "a2a"
+    container_name: ohcm_communication_agent
     environment:
-      - HOST=0.0.0.0
-      - PORT=8080
       - PYTHONPATH=/app
+      - AGENT_NAME=communication_agent
+      - AGENT_CONFIG_DIR=/app/config/
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     ports:
-      - "8080:8080"
+      - "10020:10020"
     volumes:
-      # Mount your A2A agent servers for testing
-      - ./src/a2a_servers:/app/a2a_servers:ro
-      # Mount any additional config files
-      - ./config:/app/config:ro
-    working_dir: /app/backend
-    # command: ["uv", "run", "--", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
-    command: python app.py
-    # command: ls -la .
-    # restart: unless-stopped
-    networks:
-      - a2a-network
+      - ./src/a2a_servers:/app/a2a_servers
+      - ./config:/app/config
+    working_dir: /app
+    command: python -m a2a_servers.agent --agent-name communication_agent
+    restart: unless-stopped
+
 
 networks:
-  a2a-network:
+  ${DOCKER_NETWORK}:
     driver: bridge
 
 volumes:

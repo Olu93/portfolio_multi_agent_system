@@ -23,8 +23,7 @@ services:
     working_dir: /app/mcp_servers
     command: npx @modelcontextprotocol/inspector
     restart: unless-stopped
-    networks:
-      - mcp-network
+
 
   # mcp-jam-inspector:
   #   image: mcpjam/mcp-inspector:latest
@@ -37,7 +36,26 @@ services:
   #     - ./configs/sensitive/config.inspector.json:/app/config.inspector.json
   #   restart: unless-stopped
   #   networks:
-  #     - mcp-network
+  #     - ${NETWORK_NAME}
+
+  calendar-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "mcp"
+    container_name: ohcm_calendar_mcp
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8008
+      - PYTHONPATH=/app
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./src/mcp_servers:/app/mcp_servers
+    working_dir: /app/mcp_servers
+    command: python cal.py
+    restart: unless-stopped
 
   yfinance-mcp:
     build:
@@ -57,8 +75,7 @@ services:
     working_dir: /app/mcp_servers
     command: python yahoo_finance.py
     restart: unless-stopped
-    networks:
-      - mcp-network
+    
   smtp-mcp:
     build:
       context: .
@@ -84,8 +101,7 @@ services:
     working_dir: /app/mcp_servers
     command: python smtp.py
     restart: unless-stopped
-    networks:
-      - mcp-network
+
   serper-mcp:
     build:
       context: .
@@ -106,8 +122,6 @@ services:
     command: python serper.py
     # command: python serper-official.py
     restart: unless-stopped
-    networks:
-      - mcp-network
 
   duckduckgo-mcp:
     build:
@@ -127,8 +141,6 @@ services:
     working_dir: /app/mcp_servers
     command: python duckduckgo.py
     restart: unless-stopped
-    networks:
-      - mcp-network
 
   # playwright-mcp:
   #   build:
@@ -172,8 +184,6 @@ services:
     working_dir: /app/mcp_servers
     command: python file_storage.py
     restart: unless-stopped
-    networks:
-      - mcp-network
 
   # kafka-mcp:
   #   build:
@@ -261,7 +271,7 @@ services:
   #     - mcp-network
 
 networks:
-  mcp-network:
+  ${DOCKER_NETWORK}:
     driver: bridge
 
 volumes:

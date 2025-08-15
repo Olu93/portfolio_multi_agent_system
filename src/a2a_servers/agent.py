@@ -1,7 +1,5 @@
 import asyncio
 import logging
-import os
-from pathlib import Path
 from typing import Any, AsyncIterable, Literal
 import click
 from langchain_openai import ChatOpenAI
@@ -13,14 +11,13 @@ from a2a.types import (
     AgentCapabilities,
     AgentCard,
     AgentSkill,
-    DataPart,
+    # DataPart,
     Part,
     TaskState,
     TextPart,
 )
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.utils import new_agent_text_message, new_task, new_agent_parts_message
-from a2a.utils.errors import ServerError
 from a2a.server.events import EventQueue
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
@@ -31,7 +28,6 @@ import uvicorn
 from langchain.chat_models import init_chat_model
 
 from a2a_servers.config_loader import load_agent_config, load_model_config, load_prompt_config
-from a2a_servers.constants import AGENT_CONFIG
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -265,6 +261,11 @@ async def create_sub_agent(agent_name: str):
         )
 
         model = init_chat_model(model_config["name"], **model_config["parameters"], model_provider=model_config["provider"])
+
+
+        for tool in tool_config_dict:
+            if not ("/mcp" in tool_config_dict[tool]["url"] or "/sse" in tool_config_dict[tool]["url"]):
+                logger.warning(f"Tool {tool} is not using the correct URL format. Please use the correct URL format. The URL is {tool_config_dict[tool]['url']}")
 
         client = MultiServerMCPClient(tool_config_dict)
         tools = await client.get_tools()
