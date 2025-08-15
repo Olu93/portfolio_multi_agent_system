@@ -3,6 +3,8 @@ description: "An agent that can gather finance information from the web"
 tools:
   - name: "Yahoo Finance"
     description: "An agent that can gather finance information from the web using Yahoo Finance"
+    tags: ["finance", "yahoo", "finance information"]
+    examples: ["Get the latest news about Apple Inc.", "Get the latest news about Apple Inc., if you can't find the news, try to find it using the search tool"]
     mcp_server: 
       url: "http://localhost:8007"
       transport: "streamable_http"

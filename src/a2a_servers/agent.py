@@ -228,16 +228,7 @@ async def create_sub_agent(agent_name: str):
     Create a sub agent for the main agent based on the agents.yml file in which all the agents are registered.
     """
     try:
-        # TODO: Add skills from the agent config
-        skills = [
-            AgentSkill(
-                id="search",
-                name="Web Research Tool",
-                description="Searches the web for information and provides relevant URLs",
-                tags=["research", "web search", "information gathering"],
-                examples=["Find me websites with real estate listings in Rotterdam"],
-            )
-        ]
+
 
         capabilities = AgentCapabilities(streaming=False, pushNotifications=False)
         agent_config = load_agent_config(agent_name)
@@ -247,6 +238,18 @@ async def create_sub_agent(agent_name: str):
         prompt_config = load_prompt_config(agent_config.get("prompt_file", f"{agent_name}.txt"))
 
         tool_config_dict = {tool["name"]: tool["mcp_server"] for tool in tool_config}
+
+        # TODO: Add skills from the agent config
+        skills = [
+            AgentSkill(
+                id=tool["name"],
+                name=tool["name"],
+                description=tool["description"],
+                tags=tool["tags"],
+                examples=tool["examples"],
+            ) for tool in tool_config
+        ]
+
 
         agent_card = AgentCard(
             name=agent_config["name"],
