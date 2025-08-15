@@ -4,29 +4,42 @@ version: '3.8'
 services:
 
 
-  a2a-inspector:
+  agent-inspector:
     build:
       context: .
       dockerfile: Dockerfile.a2a-inspector
     container_name: ohcm_a2a_inspector
     environment:
-      - HOST=0.0.0.0
-      - PORT=8080
       - PYTHONPATH=/app
     ports:
-      - "8080:8080"
+      - "9001:9001"
     volumes:
       # Mount your A2A agent servers for testing
       - ./src/a2a_servers:/app/a2a_servers:ro
       # Mount any additional config files
       - ./config:/app/config:ro
     working_dir: /app/backend
-    command: uv run -- uvicorn app:app --host 0.0.0.0 --port 8080
+    command: uv run -- uvicorn app:app --host 0.0.0.0 --port 9001
 
-    # command: python app.py
-    # command: ls -la .
-    # restart: unless-stopped
-
+  agent-registry:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "a2a"
+    container_name: ohcm_agent_registry
+    environment:
+      - PYTHONPATH=/app
+      - HOST=0.0.0.0
+      - PORT=10000
+    ports:
+      - "10000:10000"
+    volumes:
+      - ./src/a2a_servers:/app/a2a_servers
+      - ./config:/app/config:ro
+    working_dir: /app
+    command: python -m a2a_servers.registry
+    restart: unless-stopped
 
   communication-agent:
     build:
@@ -40,6 +53,7 @@ services:
       - AGENT_NAME=communication_agent
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REGISTRY_URL=http://ohcm_agent_registry:10000
     ports:
       - "10020:10020"
     volumes:
@@ -47,6 +61,50 @@ services:
       - ./config:/app/config
     working_dir: /app
     command: python -m a2a_servers.agent --agent-name communication_agent
+    restart: unless-stopped
+
+  finance-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "a2a"
+    container_name: ohcm_finance_agent
+    environment:
+      - PYTHONPATH=/app
+      - AGENT_NAME=finance_agent
+      - AGENT_CONFIG_DIR=/app/config/
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REGISTRY_URL=http://ohcm_agent_registry:10000
+    ports:
+      - "10020:10020"
+    volumes:
+      - ./src/a2a_servers:/app/a2a_servers
+      - ./config:/app/config
+    working_dir: /app
+    command: python -m a2a_servers.agent --agent-name finance_agent
+    restart: unless-stopped
+
+  web-search-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "a2a"
+    container_name: ohcm_web_search_agent
+    environment:
+      - PYTHONPATH=/app
+      - AGENT_NAME=web_search_agent
+      - AGENT_CONFIG_DIR=/app/config/
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REGISTRY_URL=http://ohcm_agent_registry:10000
+    ports:
+      - "10020:10020"
+    volumes:
+      - ./src/a2a_servers:/app/a2a_servers
+      - ./config:/app/config
+    working_dir: /app
+    command: python -m a2a_servers.agent --agent-name web_search_agent
     restart: unless-stopped
 
 
