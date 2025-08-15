@@ -28,7 +28,9 @@
 - Make sure that all the mpc_servers import LOG_CONFIGURATION_COMPLETED from log.py and log.info that. This is to ensure that the log.py was definetely imported.
 - Add reasonable log.info, log.warning and log.error statements in each mcp_servers file.   
 
-
+### Multiline strings
+- Go through the code and check where there are multiline strings which mess up the indentation.
+- Replace these strings using "String1"\n"String2"\n"String3" pattern
 
 ## Gathered TODO's
 LIST OF TODOS
