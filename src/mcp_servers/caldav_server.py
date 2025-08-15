@@ -36,10 +36,11 @@ CALDAV_PASSWORD = os.getenv("CALDAV_PASSWORD", "")
 # - VALARM: Needs a set of CRUD operations
 
 # TODO: The method "utcnow" in class "datetime" is deprecated.Use timezone-aware objects to represent datetimes in UTC; e.g. by calling .now(datetime.UTC)
-
+# TODO: Add timezone support as the created events are all shifted by 2 hours
 
 class CalEventEntryContract(BaseModel):
     _type: Literal["VEVENT", "VBUSY"]
+    cal_url: str = Field(..., description="The URL of the calendar")
     summary: str = Field("", description="The summary of the event")
     start_datetime: datetime = Field(
         datetime.now(), description="The start datetime of the event as datetime object"
@@ -73,6 +74,7 @@ def event_to_dict_list(event_obj: Event) -> list[CalEventEntryContract]:
             vCategories: list[str] = [str(category) for category in vCatObject]
             entry = CalEventEntryContract(
                 _type="VEVENT",
+                cal_url=event_obj.url,
                 summary=vText,
                 start_datetime=vStart.dt if vStart else datetime.now(),
                 end_datetime=vEnd.dt if vEnd else datetime.now(),
@@ -88,6 +90,7 @@ def event_to_dict_list(event_obj: Event) -> list[CalEventEntryContract]:
             if not isinstance(freebusy_values, list):
                 freebusy_values = [freebusy_values]
 
+            # TODO: Remove this redundant code by creating a new function to handle VFREEBUSY
             for period in freebusy_values:
                 fbtype = period.params.get("FBTYPE", "BUSY").upper()
                 if fbtype == "FREE":
@@ -95,6 +98,7 @@ def event_to_dict_list(event_obj: Event) -> list[CalEventEntryContract]:
 
                 busy_event = CalEventEntryContract(
                     _type="VBUSY",
+                    cal_url=event_obj.url,
                     summary="Busy",
                     start_datetime=period.dtstart,
                     end_datetime=period.dtend,
@@ -164,38 +168,47 @@ class CalDAVServer:
             await ctx.error(f"Failed to connect to CalDAV server: {str(e)}")
             return False
 
-    def _generate_ical_event(self, event: CalDAVEvent) -> str:
-        """Generate iCal format for an event"""
-        # Generate unique UID if not provided
+    def _generate_ical_event(self, event: CalDAVEvent, attendees: List[str] = None) -> str:
+        """Generate iCal format for an event, including attendees for invitations."""
         uid = event.uid or f"{int(datetime.utcnow().timestamp())}@caldav.mcp"
-
-        # Format dates in iCal format
         dtstamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         dtstart = event.start_time.strftime("%Y%m%dT%H%M%SZ")
         dtend = event.end_time.strftime("%Y%m%dT%H%M%SZ")
 
-        ical = f"""BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//CalDAV MCP Server//EN
-BEGIN:VEVENT
-UID:{uid}
-DTSTAMP:{dtstamp}
-DTSTART:{dtstart}
-DTEND:{dtend}
-SUMMARY:{event.title}"""
+        ical = (
+            f"BEGIN:VCALENDAR\n"
+            f"VERSION:2.0\n"
+            f"PRODID:-//CalDAV MCP Server//EN\n"
+            f"BEGIN:VEVENT\n"
+            f"UID:{uid}\n"
+            f"DTSTAMP:{dtstamp}\n"
+            f"DTSTART:{dtstart}\n"
+            f"DTEND:{dtend}\n"
+            f"SUMMARY:{event.title}\n"
+            f"ORGANIZER;CN=Me:mailto:{self.user}"
+        )
+
+        # Add attendees if provided
+        if attendees:
+            for a in attendees:
+                cn = a.split("@")[0]
+                ical += f"\nATTENDEE;CN={cn};RSVP=TRUE:mailto:{a}"
 
         if event.description:
             ical += f"\nDESCRIPTION:{event.description}"
-
         if event.location:
             ical += f"\nLOCATION:{event.location}"
 
-        ical += "\nEND:VEVENT\nEND:VCALENDAR"
-
+        ical += (
+            "\nEND:VEVENT\n"
+            "END:VCALENDAR"
+        )
         return ical
 
-    async def create_event(self, event: CalDAVEvent, ctx: Context) -> str:
-        """Create a new calendar event"""
+
+
+    async def create_event(self, event: CalDAVEvent, ctx: Context, attendees: List[str] = None) -> str:
+        """Create a new calendar event and send invites via CalDAV server."""
         try:
             if not self.primary_calendar:
                 if not await self.connect(ctx):
@@ -203,14 +216,14 @@ SUMMARY:{event.title}"""
 
             await ctx.info(f"Creating event: {event.title}")
 
-            # Generate iCal format
-            ical_content = self._generate_ical_event(event)
+            # Generate iCal with attendees
+            ical_content = self._generate_ical_event(event, attendees)
 
             # Add event to calendar
             self.primary_calendar.add_event(ical_content)
 
-            await ctx.info("Event created successfully!")
-            return f"Event '{event.title}' created successfully in CalDAV calendar"
+            await ctx.info("Event created successfully! Invitations sent by server if applicable.")
+            return f"Event '{event.title}' created successfully and invites sent"
 
         except Exception as e:
             error_msg = f"Failed to create event: {str(e)}"
@@ -218,18 +231,30 @@ SUMMARY:{event.title}"""
             traceback.print_exc(file=sys.stderr)
             return error_msg
 
+
     # TODO: Add limit parameter to get events but keep the default to 10
     async def get_events(
         self,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        calendar_id: Optional[str] = None,
         ctx: Context = None,
     ) -> str:
         """Get events from the calendar"""
         try:
+
+
             if not self.primary_calendar:
                 if not await self.connect(ctx):
                     return "Failed to connect to CalDAV server"
+
+            if calendar_id:
+                for cal in self.calendars:
+                    if cal.id == calendar_id:
+                        self.primary_calendar = cal
+                        break
+                if not self.primary_calendar:
+                    return f"Calendar with ID {calendar_id} not found"
 
             if ctx:
                 await ctx.info("Fetching calendar events...")
@@ -254,6 +279,7 @@ SUMMARY:{event.title}"""
                 except Exception as e:
                     error_event = CalEventEntryContract(
                         _type="VEVENT",
+                        cal_url=ev.url,
                         summary="Error parsing event",
                         start_datetime=ev.dtstart,
                         end_datetime=ev.dtend,
@@ -336,6 +362,19 @@ SUMMARY:{event.title}"""
             traceback.print_exc(file=sys.stderr)
             return error_msg
 
+    async def get_calendar_by_email(self, email: str, ctx: Context) -> str:
+        """Get a calendar by email"""
+        try:
+            for cal in self.calendars:
+                if cal.email == email:
+                    return cal.name
+
+        except Exception as e:
+            error_msg = f"Failed to get calendar by email: {str(e)}"
+            await ctx.error(error_msg)
+            traceback.print_exc(file=sys.stderr)
+            return error_msg
+
     def test_connection(self) -> Dict[str, Any]:
         """Test CalDAV connection and return status"""
         try:
@@ -347,6 +386,86 @@ SUMMARY:{event.title}"""
             }
         except Exception as e:
             return {"status": "error", "error": str(e)}
+
+
+    async def get_availability_for_email(
+        self,
+        email: str,
+        start: datetime,
+        end: datetime,
+        ctx: Context
+    ) -> list[CalEventEntryContract]:
+        """
+        Get busy periods for a given email between start and end.
+        - Checks free/busy for org members (CalDAV free-busy-query)
+        - Checks shared calendars in self.calendars
+        Returns busy periods as CalEventEntryContract list.
+        """
+        import requests
+        from urllib.parse import urljoin
+
+        busy_entries: list[CalEventEntryContract] = []
+
+        try:
+            # 1. First, check if this email corresponds to a shared calendar in self.calendars
+            for cal in self.calendars:
+                cal: CalDAVCalendar = cal
+                if getattr(cal, "email", "").lower() == email.lower():
+                    if ctx:
+                        await ctx.info(f"Found shared calendar for {email}, checking events...")
+                    events = cal.date_search(start=start, end=end)
+                    for ev in events:
+                        busy_entries.extend(event_to_dict_list(ev))
+                    return [e for e in busy_entries if e._type == "VBUSY" or e._type == "VEVENT"]
+
+            # 2. If not a shared calendar, try an org-level free/busy query
+    #         if ctx:
+    #             await ctx.info(f"No shared calendar found, querying org free/busy for {email}...")
+    #         report_xml = f"""<?xml version="1.0" encoding="utf-8" ?>
+    # <C:free-busy-query xmlns:C="urn:ietf:params:xml:ns:caldav">
+    # <C:time-range start="{start.strftime('%Y%m%dT%H%M%SZ')}"
+    #                 end="{end.strftime('%Y%m%dT%H%M%SZ')}"/>
+    # </C:free-busy-query>
+    # """
+    #         cal_url = urljoin(self.url, f"{email}/events/")
+    #         headers = {"Content-Type": "application/xml; charset=utf-8"}
+    #         resp = requests.request(
+    #             "REPORT",
+    #             cal_url,
+    #             data=report_xml,
+    #             headers=headers,
+    #             auth=(self.user, self.password),
+    #         )
+    #         resp.raise_for_status()
+
+    #         cal: Component = Calendar.from_ical(resp.text)
+    #         for component in cal.walk():
+    #             component: Component = component
+    #             if component.name == "VFREEBUSY":
+    #                 freebusy_values = component.get("FREEBUSY")
+    #                 if not isinstance(freebusy_values, list):
+    #                     freebusy_values = [freebusy_values]
+    #                 for period in freebusy_values:
+    #                     fbtype = period.params.get("FBTYPE", "BUSY").upper()
+    #                     if fbtype == "FREE":
+    #                         continue
+    #                     busy_entries.append(
+    #                         CalEventEntryContract(
+    #                             _type="VBUSY",
+    #                             cal_url=cal.url,
+    #                             summary="Busy",
+    #                             start_datetime=period.dtstart,
+    #                             end_datetime=period.dtend,
+    #                             extra={"fbtype": fbtype}
+    #                         )
+    #                     )
+    #         return busy_entries
+
+        except Exception as e:
+            await ctx.error(f"Failed to get availability for {email}: {e}")
+            traceback.print_exc(file=sys.stderr)
+            return []
+
 
 
 # Initialize FastMCP server
@@ -370,10 +489,11 @@ async def create_caldav_event(
     description: Optional[str] = None,
     location: Optional[str] = None,
     uid: Optional[str] = None,
+    attendees: Optional[List[str]] = None,
     ctx: Context = None,
 ) -> str:
     """
-    Create a new CalDAV calendar event.
+    Create a new CalDAV calendar event and optionally invite attendees.
 
     Args:
         title: Event title
@@ -381,18 +501,17 @@ async def create_caldav_event(
         end_time: End time in ISO format (e.g., "2025-08-20T16:00:00")
         description: Event description (optional)
         location: Event location (optional)
-        uid: Unique identifier for the event (optional, auto-generated if not provided)
+        uid: Unique identifier for the event (optional)
+        attendees: List of email addresses to invite (optional)
         ctx: MCP context for logging
     """
     if not caldav_configured:
         return "CalDAV server is not properly configured. Please check environment variables."
 
     try:
-        # Parse datetime strings
         start_dt = datetime.fromisoformat(start_time)
         end_dt = datetime.fromisoformat(end_time)
 
-        # Create event object
         event = CalDAVEvent(
             title=title,
             start_time=start_dt,
@@ -402,8 +521,7 @@ async def create_caldav_event(
             uid=uid,
         )
 
-        # Create event
-        return await caldav_server.create_event(event, ctx)
+        return await caldav_server.create_event(event, ctx, attendees=attendees or [])
 
     except ValueError as e:
         return f"Invalid datetime format: {str(e)}. Please use ISO format (e.g., '2025-08-20T15:00:00')"
@@ -415,10 +533,12 @@ async def create_caldav_event(
         return error_msg
 
 
+
 @mcp.tool()
 async def get_caldav_events(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    calendar_id: Optional[str] = None,
     ctx: Context = None,
 ) -> str:
     """
@@ -427,6 +547,7 @@ async def get_caldav_events(
     Args:
         start_date: Start date in ISO format (optional, defaults to today)
         end_date: End date in ISO format (optional, defaults to 30 days from start)
+        calendar_id: Calendar ID (optional, defaults to primary calendar)
         ctx: MCP context for logging
     """
     if not caldav_configured:
@@ -443,7 +564,7 @@ async def get_caldav_events(
             end_dt = datetime.fromisoformat(end_date)
 
         # Get events
-        return await caldav_server.get_events(start_dt, end_dt, ctx)
+        return await caldav_server.get_events(start_dt, end_dt, calendar_id, ctx)
 
     except ValueError as e:
         return f"Invalid datetime format: {str(e)}. Please use ISO format (e.g., '2025-08-20T15:00:00')"
@@ -579,6 +700,52 @@ async def create_quick_caldav_event(
 
 
 @mcp.tool()
+async def get_caldav_availability(
+    email: str,
+    start_date: str,
+    end_date: str,
+    ctx: Context
+) -> str:
+    """
+    Get busy periods for a given email in the CalDAV server.
+    Checks both shared calendars and org-level free/busy.
+    
+    Args:
+        email: Email address of the calendar owner
+        start_date: ISO datetime string (UTC) for range start
+        end_date: ISO datetime string (UTC) for range end
+        ctx: MCP context for logging
+    """
+    if not caldav_configured:
+        return "CalDAV server is not properly configured."
+
+    try:
+        start_dt = datetime.fromisoformat(start_date)
+        end_dt = datetime.fromisoformat(end_date)
+
+        entries = await caldav_server.get_availability_for_email(
+            email=email,
+            start=start_dt,
+            end=end_dt,
+            ctx=ctx
+        )
+
+        if not entries:
+            return f"No busy periods found for {email} between {start_date} and {end_date}."
+
+        return "\n\n".join(e.model_dump_json(indent=2) for e in entries)
+
+    except ValueError:
+        return "Invalid datetime format. Please use ISO format, e.g. '2025-08-20T15:00:00'."
+    except Exception as e:
+        error_msg = f"Failed to get availability for {email}: {e}"
+        await ctx.error(error_msg)
+        traceback.print_exc(file=sys.stderr)
+        return error_msg
+
+
+
+@mcp.tool()
 async def test_caldav_connection(ctx: Context) -> str:
     """
     Test the CalDAV connection and list available calendars.
@@ -606,6 +773,8 @@ async def test_caldav_connection(ctx: Context) -> str:
             await ctx.error(error_msg)
         traceback.print_exc(file=sys.stderr)
         return error_msg
+
+
 
 
 if __name__ == "__main__":
