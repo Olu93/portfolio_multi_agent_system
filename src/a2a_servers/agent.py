@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from typing import Any, AsyncIterable, Literal
 import click
 from langchain_openai import ChatOpenAI
@@ -24,6 +25,7 @@ from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
 from a2a.server.apps import A2AStarletteApplication
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import AIMessage, ToolMessage
+import requests
 import uvicorn
 from langchain.chat_models import init_chat_model
 
@@ -293,15 +295,128 @@ async def create_sub_agent(agent_name: str):
         raise e
 
 
+async def periodic_registration_check(agent_card: AgentCard, interval_seconds: int = None):
+    """
+    Periodically check if the agent is registered and register if needed.
+    This runs as a background task.
+    """
+    if interval_seconds is None:
+        interval_seconds = int(os.getenv("AGENT_HEARTBEAT_INTERVAL", "30"))
+    
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            # Run the registration check in a thread pool since requests is blocking
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, try_to_register_agent, agent_card)
+            
+            # Also send a heartbeat to keep the agent alive
+            await loop.run_in_executor(None, send_heartbeat, agent_card)
+        except asyncio.CancelledError:
+            logger.info(f"Periodic registration check for agent {agent_card.name} cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Error in periodic registration check for agent {agent_card.name}: {e}")
+            # Continue running even if there's an error
+            continue
+
+
+def check_if_agent_registered(agent_card: AgentCard) -> bool:
+    """
+    Check if the agent is already registered with the registry.
+    """
+    REGISTRY_URL = os.getenv("REGISTRY_URL")
+    try:
+        # Check if agent is already registered by URL
+        response = requests.post(f"{REGISTRY_URL}/registry/lookup", json={"url": agent_card.url})
+        if response.status_code == 200:
+            logger.info(f"Agent {agent_card.name} is already registered")
+            return True
+        elif response.status_code == 404:
+            logger.info(f"Agent {agent_card.name} is not registered")
+            return False
+        else:
+            logger.warning(f"Unexpected response when checking agent registration: {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Error checking if agent {agent_card.name} is registered: {e}")
+        return False
+
+def try_to_register_agent(agent_card: AgentCard):
+    """
+    Register the agent with the registry if not already registered.
+    """
+    if check_if_agent_registered(agent_card):
+        return
+    
+    REGISTRY_URL = os.getenv("REGISTRY_URL")
+    try:
+        # Register agent by sending POST request to the registry
+        response = requests.post(f"{REGISTRY_URL}/registry/register", json=agent_card.model_dump(mode='python'))
+        if response.status_code == 201:
+            logger.info(f"Agent {agent_card.name} registered successfully")
+        else:
+            logger.error(f"Failed to register agent {agent_card.name}: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Error registering agent {agent_card.name}: {e}")
+
+def send_heartbeat(agent_card: AgentCard):
+    """
+    Send a heartbeat to the registry to keep the agent alive.
+    """
+    REGISTRY_URL = os.getenv("REGISTRY_URL")
+    try:
+        response = requests.post(f"{REGISTRY_URL}/registry/heartbeat", json={"url": agent_card.url})
+        if response.status_code == 200:
+            logger.debug(f"Heartbeat sent successfully for agent {agent_card.name}")
+        else:
+            logger.warning(f"Failed to send heartbeat for agent {agent_card.name}: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Error sending heartbeat for agent {agent_card.name}: {e}")
+
+
 @click.command()
 @click.option("--agent-name", default="web_search_agent", help="Name of the agent to run")
 @click.option("--host", default="0.0.0.0", help="Host to run the agent on")
 @click.option("--port", default=10020, help="Port to run the agent on")
 @click.option("--log-level", default="info", help="Log level to run the agent on")
 def run_agent_server(agent_name: str, host: str, port: int, log_level: str):
-    app = asyncio.run(create_sub_agent(agent_name))
+    async def run_with_background_tasks():
+        app = await create_sub_agent(agent_name)
+        fastapi_app = app.build()
+        
+        # Add background task for periodic registration
+        registration_task = None
+        
+        @fastapi_app.on_event("startup")
+        async def startup_event():
+            nonlocal registration_task
+            # Do initial registration attempt
+            logger.info(f"Attempting initial registration for agent {app.agent_card.name}")
+            await asyncio.get_event_loop().run_in_executor(None, try_to_register_agent, app.agent_card)
+            
+            # Start the periodic registration task
+            registration_task = asyncio.create_task(periodic_registration_check(app.agent_card))
+            interval = os.getenv("AGENT_HEARTBEAT_INTERVAL", "30")
+            logger.info(f"Started periodic registration check for agent {app.agent_card.name} with {interval}s interval")
+        
+        @fastapi_app.on_event("shutdown")
+        async def shutdown_event():
+            if registration_task and not registration_task.done():
+                registration_task.cancel()
+                try:
+                    await registration_task
+                except asyncio.CancelledError:
+                    pass
+                logger.info(f"Stopped periodic registration check for agent {app.agent_card.name}")
+        
+        return fastapi_app
+    
+    # Run the async function and get the FastAPI app
+    fastapi_app = asyncio.run(run_with_background_tasks())
+    
     uvicorn.run(
-        app.build(),
+        fastapi_app,
         host=host,
         port=port,
         log_level=log_level,

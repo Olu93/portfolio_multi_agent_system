@@ -1,7 +1,7 @@
 # File Name : registry_server.py
 # This program Creates In-memory based AI Agents regisry-server using Google A2A protocol
 # Author: Sreeni Ramadurai 
-
+# https://dev.to/sreeni5018/building-an-ai-agent-registry-server-with-fastapi-enabling-seamless-agent-discovery-via-a2a-15dj
 
 import os
 import uvicorn
@@ -32,6 +32,9 @@ class AgentRegistration(BaseModel):
     skills: List[dict] = []
 
 class HeartbeatRequest(BaseModel):
+    url: str
+
+class LookupRequest(BaseModel):
     url: str
 
 # Create registry server and FastAPI app
@@ -87,6 +90,14 @@ async def register_agent(registration: AgentRegistration):
 async def list_registered_agents():
     """Lists all currently registered agents."""
     return list(registry_server.get_all_agents())
+
+@app.post("/registry/lookup", response_model=AgentCard)
+async def lookup_agent(lookup_request: LookupRequest):
+    """Lookup an agent by URL."""
+    agent = registry_server.get_agent(lookup_request.url)
+    if agent:
+        return agent
+    raise HTTPException(status_code=404, detail=f"Agent with URL '{lookup_request.url}' not found")
 
 @app.get("/health")
 async def health_check():
