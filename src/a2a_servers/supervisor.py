@@ -44,7 +44,7 @@ async def fetch_agents() -> List[AgentCard]:
 
 # --- Tool factory from AgentCards -------------------------------------------
 
-async def build_tools_from_registry(a2a_client: A2AClient, *, allow_urls: set, allow_caps: set) -> List[Tool]:
+async def build_tools_from_registry(allow_urls: set, allow_caps: set) -> List[Tool]:
     logger.info(f"Building tools from registry with allow_urls={allow_urls}, allow_caps={allow_caps}")
     
     def _mk_payload(content: str, ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -57,24 +57,32 @@ async def build_tools_from_registry(a2a_client: A2AClient, *, allow_urls: set, a
     def _safe_name(s: str) -> str:
         return re.sub(r"[^a-zA-Z0-9_]+", "_", s).strip("_").lower()
     
-    def _create_tool_for_card(card: AgentCard, a2a_client: A2AClient) -> Tool:
+    def _create_tool_for_card(card: AgentCard) -> Tool:
         """Create a tool function for a specific agent card"""
         async def tool_impl(content: str, context: Optional[Dict[str, Any]] = None):
             logger.debug(f"Tool {card.name} called with content: {content[:100]}...")
-            payload = _mk_payload(content, context)
-            res = await a2a_client.send_request(card.url, payload)
-            logger.debug(f"Tool {card.name} returned response: {str(res)[:200]}...")
-            return json.dumps(res)
+            
+            # Create a dedicated A2AClient for this specific agent
+            agent_client = A2AClient(endpoint_url=card.url)
+            
+            try:
+                # Use the ask method for simple text queries
+                response = agent_client.ask(content)
+                logger.debug(f"Tool {card.name} returned response: {str(response)[:200]}...")
+                return response
+            except Exception as e:
+                logger.error(f"Error calling agent {card.name} at {card.url}: {e}")
+                return f"Error communicating with agent {card.name}: {str(e)}"
         
         tool_name = _safe_name(card.name) or _safe_name(card.url)
         desc_caps = ", ".join(sorted((card.capabilities or {}).keys()))
         summary = f"{card.description or 'A2A agent'}. Caps: {desc_caps or 'unspecified'}"
         
         logger.debug(f"Creating tool '{tool_name}' for agent '{card.name}' at {card.url}")
-        return Tool(
+        return Tool.from_function(
+            coroutine=tool_impl,
             name=tool_name,
             description=summary,
-            func=tool_impl
         )
     
     cards = await fetch_agents()
@@ -92,14 +100,14 @@ async def build_tools_from_registry(a2a_client: A2AClient, *, allow_urls: set, a
 
     tools: List[Tool] = []
     for card in cards:
-        tools.append(_create_tool_for_card(card, a2a_client))
+        tools.append(_create_tool_for_card(card))
     
     logger.info(f"Successfully created {len(tools)} tools from registry")
     return tools
 
 # --- LangGraph supervisor agent ----------------------------------------------
 
-async def build_supervisor_graph(a2a_client: A2AClient):
+async def build_supervisor_graph():
     logger.info("Building supervisor graph")
     
     # Load configuration directly
@@ -128,7 +136,7 @@ async def build_supervisor_graph(a2a_client: A2AClient):
     )
     
     logger.info("Building tools from registry")
-    tools = await build_tools_from_registry(a2a_client, allow_urls=allow_urls, allow_caps=allow_caps)
+    tools = await build_tools_from_registry(allow_urls, allow_caps)
     
     logger.info("Creating react agent with tools and prompt")
     return create_react_agent(model, tools, prompt=prompt)
@@ -139,7 +147,6 @@ class Supervisor:
         self.graph = graph
         self._lock = asyncio.Lock()
         self._last_refresh = 0
-        self.a2a_client = A2AClient()
         logger.info("Supervisor instance initialized")
 
     async def _ensure_graph(self):
@@ -149,7 +156,7 @@ class Supervisor:
             async with self._lock:
                 if self.graph is None or (time.time() - self._last_refresh) > REFRESH_SECS:
                     logger.info("Building new supervisor graph")
-                    self.graph = await build_supervisor_graph(self.a2a_client)
+                    self.graph = await build_supervisor_graph()
                     self._last_refresh = time.time()
                     logger.info("Supervisor graph built and ready")
                 else:

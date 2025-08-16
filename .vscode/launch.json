@@ -15,6 +15,16 @@
                 "web_search_agent"
             ]
         }, 
+        {"name":"Execute Supervisor",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "a2a_servers.supervisor",
+            "cwd": "${workspaceFolder}/src",
+            "args": [
+                "--agent-name",
+                "supervisor"
+            ]
+        },
 
         {
             "name": "Execute MCP Server",

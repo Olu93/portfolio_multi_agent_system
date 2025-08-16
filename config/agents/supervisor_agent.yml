@@ -1,0 +1,6 @@
+name: "Supervisor-Agent"
+description: "An agent that can supervise the other agents"
+agent_url: "http://ohcm_supervisor_agent:10020"
+tools:
+meta_prompt: "You are a helpful assistant that can supervise the other agents"
+prompt_file: "supervisor_agent.txt"
