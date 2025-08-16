@@ -7,14 +7,14 @@ tools:
     tags: ["email", "mail", "smtp"]
     examples: ["Send an email to John Doe", "Send an email to John Doe with the subject 'Meeting', if you can't find the email address, try to find it using the search tool"]
     mcp_server: 
-      url: "http://ohcm_smtp_mcp:8006/mcp"
+      url: "http://ohcm_smtp_mcp:8000/mcp"
       transport: "streamable_http"
   - name: "Calendar"
     description: "Tool allows user to send calendar events using CALDAV protocol"
     tags: ["calendar", "events", "reminders"]
     examples: ["Create a calendar event for John Doe on 15th August 2025 at 10:00 AM", "Create a calendar event for John Doe on 15th August 2025 at 10:00 AM, if you can't find the calendar event, try to find it using the search tool"]
     mcp_server: 
-      url: "http://ohcm_calendar_mcp:8008/mcp"
+      url: "http://ohcm_calendar_mcp:8000/mcp"
       transport: "streamable_http"
 meta_prompt: "You are a helpful assistant that can use multiple communication tools such as email, slack and others"
 prompt_file: "prompts/communication_agent.txt"

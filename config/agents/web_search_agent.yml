@@ -7,12 +7,14 @@ tools:
     tags: ["search", "web search", "information gathering", "duckduckgo"]
     examples: ["Find me websites with real estate listings in Rotterdam"]
     mcp_server: 
-      url: "http://ohcm_duckduckgo_mcp:8001/mcp"
+      url: "http://ohcm_duckduckgo_mcp:8000/mcp"
       transport: "streamable_http"
   - name: "Serper"
     description: "An agent that can search the web using Serper"
     tags: ["search", "web search", "information gathering", "serper"]
     examples: ["Find me websites with real estate listings in Rotterdam", "Search for Apple's ticker symbol"]
     mcp_server: 
-      url: "http://ohcm_serper_mcp:8005/mcp"
+      url: "http://ohcm_serper_mcp:8000/mcp"
       transport: "streamable_http"
+meta_prompt: "You are a helpful assistant that can use multiple web search tools such as DuckDuckGo, Serper and others"
+prompt_file: "prompts/web_search_agent.txt"

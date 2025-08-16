@@ -46,10 +46,8 @@ services:
     container_name: ohcm_calendar_mcp
     environment:
       - MCP_HOST=0.0.0.0
-      - MCP_PORT=8008
+      - MCP_PORT=8000
       - PYTHONPATH=/app
-    ports:
-      - "8008:8008"
     volumes:
       - ./src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
@@ -65,10 +63,8 @@ services:
     container_name: ohcm_yfinance_mcp
     environment:
       - MCP_HOST=0.0.0.0
-      - MCP_PORT=8007
+      - MCP_PORT=8000
       - PYTHONPATH=/app
-    ports:
-      - "8007:8007"
     volumes:
       - ./src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
@@ -84,7 +80,7 @@ services:
     container_name: ohcm_smtp_mcp
     environment:
       - MCP_HOST=0.0.0.0
-      - MCP_PORT=8006
+      - MCP_PORT=8000
       - PYTHONPATH=/app
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
@@ -93,8 +89,6 @@ services:
       # - SMTP_USE_TLS=${SMTP_USE_TLS}
       # - SMTP_USE_SSL=${SMTP_USE_SSL}
       # - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL}
-    ports:
-      - "8006:8006"
     volumes:
       - ./src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
@@ -110,11 +104,9 @@ services:
     container_name: ohcm_serper_mcp
     environment:
       - MCP_HOST=0.0.0.0
-      - MCP_PORT=8005
+      - MCP_PORT=8000
       - SERPER_API_KEY=${SERPER_API_KEY}
       - PYTHONPATH=/app
-    ports:
-      - "8005:8005"
     volumes:
       - ./src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
@@ -131,10 +123,8 @@ services:
     container_name: ohcm_duckduckgo_mcp
     environment:
       - MCP_HOST=0.0.0.0
-      - MCP_PORT=8001
+      - MCP_PORT=8000
       - PYTHONPATH=/app
-    ports:
-      - "8001:8001"
     volumes:
       - ./src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
@@ -148,11 +138,9 @@ services:
   #   container_name: ohcm_playwright_mcp
   #   environment:
   #     - MCP_HOST=0.0.0.0
-  #     - MCP_PORT=8002
+  #     - MCP_PORT=8000
   #     - PLAYWRIGHT_BROWSER_WS_ENDPOINT=${PLAYWRIGHT_BROWSER_WS_ENDPOINT:-ws://host.docker.internal:9222}
   #     - PYTHONPATH=/app
-  #   ports:
-  #     - "8002:8002"
   #   volumes:
   #     - ./src/mcp_servers:/app/mcp_servers
   #     - ./screenshots:/app/screenshots
@@ -173,10 +161,8 @@ services:
     container_name: ohcm_file_storage_mcp
     environment:
       - MCP_HOST=0.0.0.0
-      - MCP_PORT=8003
+      - MCP_PORT=8000
       - PYTHONPATH=/app
-    ports:
-      - "8003:8003"
     volumes:
       - ./src/mcp_servers:/app/mcp_servers
       - ./files:/app/files
@@ -193,11 +179,9 @@ services:
   #   container_name: kafka-mcp-server
   #   environment:
   #     - MCP_HOST=0.0.0.0
-  #     - MCP_PORT=8004
+  #     - MCP_PORT=8000
   #     - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
   #     - PYTHONPATH=/app
-  #   ports:
-  #     - "8004:8004"
   #   volumes:
   #     - ./src/mcp_servers:/app/mcp_servers
   #   working_dir: /app/mcp_servers
@@ -273,7 +257,8 @@ networks:
   ${DOCKER_NETWORK}:
     driver: bridge
 
-volumes:
-  kafka-data:
-  mongodb-data:
-  postgres-data:
+# volumes:
+#   kafka-data:
+#   mongodb-data:
+#   postgres-data:
+
