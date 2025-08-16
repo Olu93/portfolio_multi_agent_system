@@ -376,7 +376,7 @@ def check_and_maintain_registration(agent_card: AgentCard):
             is_registered = check_if_agent_registered(agent_card)
         else:
             is_registered = True
-            logger.debug(f"Agent {agent_card.name} registration status cached as registered")
+            logger.info(f"Agent {agent_card.name} registration status cached as registered")
         
         if not is_registered:
             # Step 2: Attempt to register if not already registered
@@ -400,7 +400,7 @@ def check_and_maintain_registration(agent_card: AgentCard):
             try:
                 response = requests.post(f"{REGISTRY_URL}/registry/heartbeat", json={"url": agent_card.url})
                 if response.status_code == 200:
-                    logger.debug(f"Heartbeat sent successfully for agent {agent_card.name}")
+                    logger.info(f"Heartbeat sent successfully for agent {agent_card.name}")
                 else:
                     logger.warning(f"Failed to send heartbeat for agent {agent_card.name}: {response.status_code}")
                     # If heartbeat fails, the agent might have been removed from registry
@@ -415,51 +415,6 @@ def check_and_maintain_registration(agent_card: AgentCard):
             
     except Exception as e:
         logger.error(f"Unexpected error in check_and_maintain_registration for agent {agent_card.name}: {e}")
-
-
-def clear_registration_cache(agent_card: AgentCard = None):
-    """
-    Clear the registration cache for a specific agent or all agents.
-    
-    Args:
-        agent_card: If provided, clear cache for this specific agent.
-                   If None, clear cache for all agents.
-    """
-    if agent_card is None:
-        # Clear all cached registrations
-        _registration_cache.clear()
-        logger.info("Cleared all agent registration caches")
-    else:
-        # Clear cache for specific agent
-        cache_key = agent_card.url
-        if cache_key in _registration_cache:
-            del _registration_cache[cache_key]
-            logger.info(f"Cleared registration cache for agent {agent_card.name}")
-
-
-def get_registration_status(agent_card: AgentCard) -> dict:
-    """
-    Get the current registration status of an agent.
-    
-    Returns:
-        dict: Status information including:
-            - is_registered: bool
-            - is_cached: bool
-            - last_check: str (timestamp)
-            - registry_url: str
-    """
-    cache_key = agent_card.url
-    is_cached = _registration_cache.get(cache_key, False)
-    
-    # Force a fresh check
-    is_registered = check_if_agent_registered(agent_card)
-    
-    return {
-        'is_registered': is_registered,
-        'is_cached': is_cached,
-        'last_check': 'Just checked',
-        'registry_url': os.getenv("REGISTRY_URL", "Not set")
-    }
 
 
 @click.command()

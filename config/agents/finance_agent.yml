@@ -1,12 +1,13 @@
 name: "Finance-Agent"
 description: "An agent that can gather finance information from the web"
+agent_url: "http://ohcm_finance_agent:10020"
 tools:
   - name: "Yahoo Finance"
     description: "An agent that can gather finance information from the web using Yahoo Finance"
     tags: ["finance", "yahoo", "finance information"]
     examples: ["Get the latest news about Apple Inc.", "Get the latest news about Apple Inc., if you can't find the news, try to find it using the search tool"]
     mcp_server: 
-      url: "http://localhost:8007"
+      url: "http://ohcm_yfinance_mcp:8007/mcp"
       transport: "streamable_http"
 meta_prompt: "You are a helpful assistant that can gather finance information from the web"
 prompt_file: "prompts/finance_agent.txt"

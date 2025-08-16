@@ -1,8 +1,6 @@
 version: '3.8'
 
-
 services:
-
 
   agent-inspector:
     build:
@@ -12,11 +10,9 @@ services:
     environment:
       - PYTHONPATH=/app
     ports:
-      - "9001:9001"
+      - "9001:9001"          # only expose if you need host access
     volumes:
-      # Mount your A2A agent servers for testing
       - ./src/a2a_servers:/app/a2a_servers:ro
-      # Mount any additional config files
       - ./config:/app/config:ro
     working_dir: /app/backend
     command: uv run -- uvicorn app:app --host 0.0.0.0 --port 9001
@@ -54,13 +50,12 @@ services:
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REGISTRY_URL=http://ohcm_agent_registry:10000
-    ports:
-      - "10020:10020"
+    # no ports section, internal only
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
       - ./config:/app/config
     working_dir: /app
-    command: python -m a2a_servers.agent --agent-name communication_agent
+    command: python -m a2a_servers.agent --agent-name communication_agent --port 10020
     restart: unless-stopped
 
   finance-agent:
@@ -76,13 +71,11 @@ services:
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REGISTRY_URL=http://ohcm_agent_registry:10000
-    ports:
-      - "10020:10020"
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
       - ./config:/app/config
     working_dir: /app
-    command: python -m a2a_servers.agent --agent-name finance_agent
+    command: python -m a2a_servers.agent --agent-name finance_agent --port 10020
     restart: unless-stopped
 
   web-search-agent:
@@ -98,15 +91,12 @@ services:
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REGISTRY_URL=http://ohcm_agent_registry:10000
-    ports:
-      - "10020:10020"
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
       - ./config:/app/config
     working_dir: /app
-    command: python -m a2a_servers.agent --agent-name web_search_agent
+    command: python -m a2a_servers.agent --agent-name web_search_agent --port 10020
     restart: unless-stopped
-
 
 networks:
   ${DOCKER_NETWORK}:
