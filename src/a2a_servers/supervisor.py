@@ -29,32 +29,24 @@ SUPERVISOR_AGENT = os.getenv("SUPERVISOR_AGENT", "supervisor")  # which agent YA
 
 # --- Config helper -----------------------------------------------------------
 
-def _load_sup_cfg():
-    """Load supervisor agent YAML -> model+prompt and optional filters."""
-    agent_cfg = load_agent_config(SUPERVISOR_AGENT)
-    model_cfg = (
-        load_model_config(agent_cfg["model"]) if isinstance(agent_cfg.get("model"), str) else agent_cfg.get("model", {})
-    )
-    prompt = load_prompt_config(agent_cfg.get("prompt_file", "supervisor.txt")) or SYSTEM_PROMPT
-    # optional routing limits
-    allow_urls = set(agent_cfg.get("allow_urls", []) or [])
-    allow_caps = set(agent_cfg.get("allow_caps", []) or [])
-    return agent_cfg, model_cfg, prompt, allow_urls, allow_caps
-
 # --- Registry Client ---------------------------------------------------------
 REGISTRY_URL = os.getenv("REGISTRY_URL", "http://registry:8000")
 REFRESH_SECS = int(os.getenv("DISCOVERY_REFRESH_SECS", "30"))
 
 async def fetch_agents() -> List[AgentCard]:
+    logger.info(f"Fetching agents from registry at {REGISTRY_URL}")
     async with httpx.AsyncClient(timeout=10) as s:
         r = await s.get(f"{REGISTRY_URL}/registry/agents")
         r.raise_for_status()
-        return [AgentCard(**a) for a in r.json()]
+        agents = [AgentCard(**a) for a in r.json()]
+        logger.info(f"Discovered {len(agents)} agents from registry")
+        return agents
 
 # --- Tool factory from AgentCards -------------------------------------------
 
-
 async def build_tools_from_registry(a2a_client: A2AClient, *, allow_urls: set, allow_caps: set) -> List[Tool]:
+    logger.info(f"Building tools from registry with allow_urls={allow_urls}, allow_caps={allow_caps}")
+    
     def _mk_payload(content: str, ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return {
             "role": "user",
@@ -68,14 +60,17 @@ async def build_tools_from_registry(a2a_client: A2AClient, *, allow_urls: set, a
     def _create_tool_for_card(card: AgentCard, a2a_client: A2AClient) -> Tool:
         """Create a tool function for a specific agent card"""
         async def tool_impl(content: str, context: Optional[Dict[str, Any]] = None):
+            logger.debug(f"Tool {card.name} called with content: {content[:100]}...")
             payload = _mk_payload(content, context)
             res = await a2a_client.send_request(card.url, payload)
+            logger.debug(f"Tool {card.name} returned response: {str(res)[:200]}...")
             return json.dumps(res)
         
         tool_name = _safe_name(card.name) or _safe_name(card.url)
         desc_caps = ", ".join(sorted((card.capabilities or {}).keys()))
         summary = f"{card.description or 'A2A agent'}. Caps: {desc_caps or 'unspecified'}"
         
+        logger.debug(f"Creating tool '{tool_name}' for agent '{card.name}' at {card.url}")
         return Tool(
             name=tool_name,
             description=summary,
@@ -83,26 +78,59 @@ async def build_tools_from_registry(a2a_client: A2AClient, *, allow_urls: set, a
         )
     
     cards = await fetch_agents()
+    logger.info(f"Processing {len(cards)} agent cards")
+    
     if allow_urls:
+        original_count = len(cards)
         cards = [c for c in cards if c.url in allow_urls]
+        logger.info(f"Filtered by allow_urls: {original_count} -> {len(cards)} agents")
+    
     if allow_caps:
+        original_count = len(cards)
         cards = [c for c in cards if allow_caps & set((c.capabilities or {}).keys())]
+        logger.info(f"Filtered by allow_caps: {original_count} -> {len(cards)} agents")
 
     tools: List[Tool] = []
     for card in cards:
         tools.append(_create_tool_for_card(card, a2a_client))
+    
+    logger.info(f"Successfully created {len(tools)} tools from registry")
     return tools
 
 # --- LangGraph supervisor agent ----------------------------------------------
 
 async def build_supervisor_graph(a2a_client: A2AClient):
-    agent_cfg, model_cfg, prompt, allow_urls, allow_caps = _load_sup_cfg()
+    logger.info("Building supervisor graph")
+    
+    # Load configuration directly
+    logger.debug(f"Loading configuration for supervisor agent: {SUPERVISOR_AGENT}")
+    agent_cfg = load_agent_config(SUPERVISOR_AGENT)
+    logger.debug(f"Agent config loaded: {agent_cfg}")
+    
+    model_cfg = (
+        load_model_config(agent_cfg["model"]) if isinstance(agent_cfg.get("model"), str) else agent_cfg.get("model", {})
+    )
+    logger.debug(f"Model config loaded: {model_cfg}")
+    
+    prompt = load_prompt_config(agent_cfg.get("prompt_file", "supervisor.txt")) or SYSTEM_PROMPT
+    logger.debug(f"Prompt loaded, length: {len(prompt)} characters")
+    
+    # optional routing limits
+    allow_urls = set(agent_cfg.get("allow_urls", []) or [])
+    allow_caps = set(agent_cfg.get("allow_caps", []) or [])
+    logger.info(f"Routing limits: allow_urls={allow_urls}, allow_caps={allow_caps}")
+    
+    logger.info(f"Initializing chat model: {model_cfg.get('name', 'unknown')}")
     model = init_chat_model(
         model_cfg["name"],
         **model_cfg.get("parameters", {}),
         model_provider=model_cfg.get("provider"),
     )
+    
+    logger.info("Building tools from registry")
     tools = await build_tools_from_registry(a2a_client, allow_urls=allow_urls, allow_caps=allow_caps)
+    
+    logger.info("Creating react agent with tools and prompt")
     return create_react_agent(model, tools, prompt=prompt)
 
 # --- Public API ---------------------------------------------------------------
@@ -112,21 +140,37 @@ class Supervisor:
         self._lock = asyncio.Lock()
         self._last_refresh = 0
         self.a2a_client = A2AClient()
+        logger.info("Supervisor instance initialized")
 
     async def _ensure_graph(self):
         now = time.time()
         if self.graph is None or (now - self._last_refresh) > REFRESH_SECS:
+            logger.debug("Graph needs refresh or initialization")
             async with self._lock:
                 if self.graph is None or (time.time() - self._last_refresh) > REFRESH_SECS:
+                    logger.info("Building new supervisor graph")
                     self.graph = await build_supervisor_graph(self.a2a_client)
                     self._last_refresh = time.time()
+                    logger.info("Supervisor graph built and ready")
+                else:
+                    logger.debug("Graph was refreshed by another task")
 
     async def handle_task(self, content: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        logger.info(f"Handling task: {content[:100]}...")
+        logger.debug(f"Task context: {context}")
+        
         await self._ensure_graph()
+        
         inputs = {"messages": [("system", SYSTEM_PROMPT), ("user", content)], "context": context or {}}
+        logger.debug("Invoking supervisor graph")
+        
         result = await self.graph.ainvoke(inputs)
+        logger.debug(f"Graph invocation completed, result keys: {list(result.keys())}")
+        
         msgs = result.get("messages", [])
         final = msgs[-1].content if msgs else ""
+        logger.info(f"Task completed, final response length: {len(final)}")
+        
         return {"ok": True, "content": final, "raw": result}
 
 # --- CLI entrypoint -----------------------------------------------------------
