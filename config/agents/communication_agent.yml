@@ -17,5 +17,5 @@ tools:
       url: "http://ohcm_calendar_mcp:8000/mcp"
       transport: "streamable_http"
 meta_prompt: "You are a helpful assistant that can use multiple communication tools such as email, slack and others"
-prompt_file: "prompts/communication_agent.txt"
+prompt_file: "communication_agent.txt"
 

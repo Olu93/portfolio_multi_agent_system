@@ -17,4 +17,4 @@ tools:
       url: "http://ohcm_serper_mcp:8000/mcp"
       transport: "streamable_http"
 meta_prompt: "You are a helpful assistant that can use multiple web search tools such as DuckDuckGo, Serper and others"
-prompt_file: "prompts/web_search_agent.txt"
+prompt_file: "web_search_agent.txt"

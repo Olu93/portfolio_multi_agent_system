@@ -10,4 +10,4 @@ tools:
       url: "http://ohcm_yfinance_mcp:8000/mcp"
       transport: "streamable_http"
 meta_prompt: "You are a helpful assistant that can gather finance information from the web"
-prompt_file: "prompts/finance_agent.txt"
+prompt_file: "finance_agent.txt"
