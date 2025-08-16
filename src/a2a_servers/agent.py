@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 
 memory = InMemorySaver()
 
+# Global cache to track agent registration status
+# This prevents repeated registration attempts during the same agent session
+_registration_cache = {}
+
 
 class ResponseFormat(BaseModel):
     """Respond to the user in this format."""
@@ -297,21 +301,25 @@ async def create_sub_agent(agent_name: str):
 
 async def periodic_registration_check(agent_card: AgentCard, interval_seconds: int = None):
     """
-    Periodically check if the agent is registered and register if needed.
-    This runs as a background task.
+    Periodically check agent registration status and maintain health.
+    This runs as a background task with the following flow:
+    1. Check if agent is registered
+    2. If not registered, attempt to register
+    3. If registered, send heartbeat to maintain health
     """
     if interval_seconds is None:
         interval_seconds = int(os.getenv("AGENT_HEARTBEAT_INTERVAL", "30"))
     
+    logger.info(f"Starting periodic registration check for agent {agent_card.name} with {interval_seconds}s interval")
+    
     while True:
         try:
             await asyncio.sleep(interval_seconds)
-            # Run the registration check in a thread pool since requests is blocking
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, try_to_register_agent, agent_card)
             
-            # Also send a heartbeat to keep the agent alive
-            await loop.run_in_executor(None, send_heartbeat, agent_card)
+            # Run the registration check and heartbeat in a thread pool since requests is blocking
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, check_and_maintain_registration, agent_card)
+            
         except asyncio.CancelledError:
             logger.info(f"Periodic registration check for agent {agent_card.name} cancelled")
             break
@@ -342,37 +350,116 @@ def check_if_agent_registered(agent_card: AgentCard) -> bool:
         logger.error(f"Error checking if agent {agent_card.name} is registered: {e}")
         return False
 
-def try_to_register_agent(agent_card: AgentCard):
+def check_and_maintain_registration(agent_card: AgentCard):
     """
-    Register the agent with the registry if not already registered.
+    Unified function to check registration status and maintain agent health.
+    
+    Flow:
+    1. Check if agent is already registered
+    2. If not registered, attempt to register
+    3. If registered (or newly registered), send heartbeat
+    
+    This prevents unnecessary repeated registration attempts and only sends
+    heartbeats when the agent is actually registered.
     """
-    if check_if_agent_registered(agent_card):
+    REGISTRY_URL = os.getenv("REGISTRY_URL")
+    if not REGISTRY_URL:
+        logger.error("REGISTRY_URL environment variable not set")
         return
     
-    REGISTRY_URL = os.getenv("REGISTRY_URL")
+    cache_key = agent_card.url
+    cached_registration = _registration_cache.get(cache_key, False)
+    
     try:
-        # Register agent by sending POST request to the registry
-        response = requests.post(f"{REGISTRY_URL}/registry/register", json=agent_card.model_dump(mode='python'))
-        if response.status_code == 201:
-            logger.info(f"Agent {agent_card.name} registered successfully")
+        # Step 1: Check if agent is already registered (skip if we know we're registered)
+        if not cached_registration:
+            is_registered = check_if_agent_registered(agent_card)
         else:
-            logger.error(f"Failed to register agent {agent_card.name}: {response.status_code}")
+            is_registered = True
+            logger.debug(f"Agent {agent_card.name} registration status cached as registered")
+        
+        if not is_registered:
+            # Step 2: Attempt to register if not already registered
+            logger.info(f"Agent {agent_card.name} not found in registry, attempting registration...")
+            try:
+                response = requests.post(f"{REGISTRY_URL}/registry/register", json=agent_card.model_dump(mode='python'))
+                if response.status_code == 201:
+                    logger.info(f"Agent {agent_card.name} registered successfully")
+                    is_registered = True
+                    # Cache successful registration
+                    _registration_cache[cache_key] = True
+                else:
+                    logger.error(f"Failed to register agent {agent_card.name}: {response.status_code}")
+                    return  # Don't send heartbeat if registration failed
+            except Exception as e:
+                logger.error(f"Error registering agent {agent_card.name}: {e}")
+                return  # Don't send heartbeat if registration failed
+        
+        # Step 3: Send heartbeat only if agent is registered
+        if is_registered:
+            try:
+                response = requests.post(f"{REGISTRY_URL}/registry/heartbeat", json={"url": agent_card.url})
+                if response.status_code == 200:
+                    logger.debug(f"Heartbeat sent successfully for agent {agent_card.name}")
+                else:
+                    logger.warning(f"Failed to send heartbeat for agent {agent_card.name}: {response.status_code}")
+                    # If heartbeat fails, the agent might have been removed from registry
+                    # Clear the cache to force a re-check next time
+                    if response.status_code == 404:
+                        _registration_cache[cache_key] = False
+                        logger.info(f"Agent {agent_card.name} appears to have been removed from registry, will re-register next cycle")
+            except Exception as e:
+                logger.error(f"Error sending heartbeat for agent {agent_card.name}: {e}")
+        else:
+            logger.warning(f"Agent {agent_card.name} is not registered, skipping heartbeat")
+            
     except Exception as e:
-        logger.error(f"Error registering agent {agent_card.name}: {e}")
+        logger.error(f"Unexpected error in check_and_maintain_registration for agent {agent_card.name}: {e}")
 
-def send_heartbeat(agent_card: AgentCard):
+
+def clear_registration_cache(agent_card: AgentCard = None):
     """
-    Send a heartbeat to the registry to keep the agent alive.
+    Clear the registration cache for a specific agent or all agents.
+    
+    Args:
+        agent_card: If provided, clear cache for this specific agent.
+                   If None, clear cache for all agents.
     """
-    REGISTRY_URL = os.getenv("REGISTRY_URL")
-    try:
-        response = requests.post(f"{REGISTRY_URL}/registry/heartbeat", json={"url": agent_card.url})
-        if response.status_code == 200:
-            logger.debug(f"Heartbeat sent successfully for agent {agent_card.name}")
-        else:
-            logger.warning(f"Failed to send heartbeat for agent {agent_card.name}: {response.status_code}")
-    except Exception as e:
-        logger.error(f"Error sending heartbeat for agent {agent_card.name}: {e}")
+    if agent_card is None:
+        # Clear all cached registrations
+        _registration_cache.clear()
+        logger.info("Cleared all agent registration caches")
+    else:
+        # Clear cache for specific agent
+        cache_key = agent_card.url
+        if cache_key in _registration_cache:
+            del _registration_cache[cache_key]
+            logger.info(f"Cleared registration cache for agent {agent_card.name}")
+
+
+def get_registration_status(agent_card: AgentCard) -> dict:
+    """
+    Get the current registration status of an agent.
+    
+    Returns:
+        dict: Status information including:
+            - is_registered: bool
+            - is_cached: bool
+            - last_check: str (timestamp)
+            - registry_url: str
+    """
+    cache_key = agent_card.url
+    is_cached = _registration_cache.get(cache_key, False)
+    
+    # Force a fresh check
+    is_registered = check_if_agent_registered(agent_card)
+    
+    return {
+        'is_registered': is_registered,
+        'is_cached': is_cached,
+        'last_check': 'Just checked',
+        'registry_url': os.getenv("REGISTRY_URL", "Not set")
+    }
 
 
 @click.command()
@@ -391,9 +478,9 @@ def run_agent_server(agent_name: str, host: str, port: int, log_level: str):
         @fastapi_app.on_event("startup")
         async def startup_event():
             nonlocal registration_task
-            # Do initial registration attempt
+            # Do initial registration attempt and health check
             logger.info(f"Attempting initial registration for agent {app.agent_card.name}")
-            await asyncio.get_event_loop().run_in_executor(None, try_to_register_agent, app.agent_card)
+            await asyncio.get_event_loop().run_in_executor(None, check_and_maintain_registration, app.agent_card)
             
             # Start the periodic registration task
             registration_task = asyncio.create_task(periodic_registration_check(app.agent_card))
