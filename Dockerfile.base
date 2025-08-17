@@ -79,6 +79,6 @@ CMD if [ "$IS_PROD" = "true" ]; then \
         if [ -z "$CMD_ARGS" ]; then \
             python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678"${DEBUG_PY_ARGS}" -m "${CMD_MODULE}"; \
         else \
-            python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678s"${DEBUG_PY_ARGS}" -m "${CMD_MODULE}" "${CMD_ARGS}"; \
+            python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678"${DEBUG_PY_ARGS}" -m "${CMD_MODULE}" "${CMD_ARGS}"; \
         fi; \
     fi
