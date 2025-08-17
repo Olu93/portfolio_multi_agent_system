@@ -205,8 +205,11 @@ class Supervisor(A2AServer):
 
             logger.info(f"Received A2A task: {text[:100]}...")
 
-            # Use the LangGraph orchestration to process the task
+            # Validate input
+            if not text.strip():
+                raise ValueError("Empty or whitespace-only message received")
 
+            # Use the LangGraph orchestration to process the task
             result = asyncio.run(self.orchestrate(text, {
                 "task_id": task.id,
                 "session_id": task.session_id,
@@ -221,14 +224,55 @@ class Supervisor(A2AServer):
                 task.status = TaskStatus(state=TaskState.COMPLETED)
             else:
                 task.status = TaskStatus(
-                    state=TaskState.FAILED, message={"error": "Orchestration failed"}
+                    state=TaskState.FAILED, 
+                    message={"error": "Orchestration failed"}
                 )
 
-        except Exception as e:
-            logger.error(f"Error handling A2A task: {e}")
+        except ValueError as e:
+            # Handle validation errors
+            logger.warning(f"Validation error in A2A task: {e}")
+            task.artifacts = [{
+                "parts": [{"type": "text", "text": f"Validation error: {str(e)}"}]
+            }]
+            task.status = TaskStatus(
+                state=TaskState.INPUT_REQUIRED,
+                message={"error": f"Input validation failed: {str(e)}"}
+            )
+
+        except asyncio.TimeoutError as e:
+            # Handle timeout errors
+            logger.error(f"Timeout error in A2A task orchestration: {e}")
+            task.artifacts = [{
+                "parts": [{"type": "text", "text": "Request timed out. Please try again."}]
+            }]
             task.status = TaskStatus(
                 state=TaskState.FAILED,
-                message={"error": f"Error processing task: {str(e)}"},
+                message={"error": "Orchestration timeout"}
+            )
+
+        except ConnectionError as e:
+            # Handle connection errors
+            logger.error(f"Connection error in A2A task: {e}")
+            task.artifacts = [{
+                "parts": [{"type": "text", "text": f"Service unavailable: {str(e)}"}]
+            }]
+            task.status = TaskStatus(
+                state=TaskState.FAILED,
+                message={"error": f"Connection failed: {str(e)}"}
+            )
+
+        except Exception as e:
+            # Handle unexpected errors
+            import traceback
+            logger.error(f"Unexpected error handling A2A task: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            
+            task.artifacts = [{
+                "parts": [{"type": "text", "text": "An unexpected error occurred. Please try again or contact support."}]
+            }]
+            task.status = TaskStatus(
+                state=TaskState.FAILED,
+                message={"error": f"Unexpected error: {str(e)}"}
             )
 
         return task
