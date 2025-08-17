@@ -46,6 +46,7 @@ services:
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "cal"
         CMD_ARGS: ""
+        DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_calendar_mcp
     environment:
       - MCP_HOST=0.0.0.0
@@ -67,6 +68,7 @@ services:
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "yahoo_finance"
         CMD_ARGS: ""
+        DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_yfinance_mcp
     environment:
       - MCP_HOST=0.0.0.0
@@ -88,6 +90,7 @@ services:
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "smtp"
         CMD_ARGS: ""
+        DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_smtp_mcp
     environment:
       - MCP_HOST=0.0.0.0
@@ -115,6 +118,7 @@ services:
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "serper"
         CMD_ARGS: ""
+        DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_serper_mcp
     environment:
       - MCP_HOST=0.0.0.0
@@ -138,6 +142,7 @@ services:
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "duckduckgo"
         CMD_ARGS: ""
+        DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_duckduckgo_mcp
     environment:
       - MCP_HOST=0.0.0.0
@@ -178,8 +183,9 @@ services:
       args:
         POETRY_GROUPS: "mcp"
         IS_PROD: ${IS_PROD}
-        CMD_MODULE: "file_storage"
+        CMD_MODULE: file_storage
         CMD_ARGS: ""
+        DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_file_storage_mcp
     environment:
       - MCP_HOST=0.0.0.0

@@ -420,10 +420,8 @@ def check_and_maintain_registration(agent_card: AgentCard):
 
 @click.command()
 @click.option("--agent-name", default="web_search_agent", help="Name of the agent to run")
-@click.option("--host", default="0.0.0.0", help="Host to run the agent on")
-@click.option("--port", default=10020, help="Port to run the agent on")
 @click.option("--log-level", default="info", help="Log level to run the agent on")
-def run_agent_server(agent_name: str, host: str, port: int, log_level: str):
+def run_agent_server(agent_name: str, log_level: str):
     async def run_with_background_tasks():
         app = await create_sub_agent(agent_name)
         fastapi_app = app.build()
@@ -460,8 +458,8 @@ def run_agent_server(agent_name: str, host: str, port: int, log_level: str):
     
     uvicorn.run(
         fastapi_app,
-        host=host,
-        port=port,
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=os.getenv("PORT", 10020),
         log_level=log_level,
     )
 

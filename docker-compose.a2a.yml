@@ -24,7 +24,7 @@ services:
       args:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
-        CMD_MODULE: "a2a_servers.registry"
+        CMD_MODULE: "registry"
         CMD_ARGS: ""
     container_name: ohcm_agent_registry
     environment:
@@ -47,19 +47,21 @@ services:
       args:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
-        CMD_MODULE: "a2a_servers.supervisor"
-        CMD_ARGS: "--agent-name supervisor_agent --port 10020"
+        CMD_MODULE: "a2a_servers.agent"
+        CMD_ARGS: "--agent-name supervisor_agent"
+        WAIT_FOR_CLIENT: "false"
     container_name: ohcm_supervisor_agent
     environment:
       - PYTHONPATH=/app
       - AGENT_NAME=supervisor_agent
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - REGISTRY_URL=http://ohcm_agent_registry:10000
+      # - REGISTRY_URL=http://ohcm_agent_registry:10000
+      - REGISTRY_URL=${REGISTRY_URL}
       - LANGSMITH_TRACING=${LANGSMITH_TRACING}
       - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
-      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}      
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}    
     ports:
       - "10020:10020"
       - "20002:5678"    # debugpy port for VS Code debugging
@@ -76,14 +78,16 @@ services:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "a2a_servers.agent"
-        CMD_ARGS: "--agent-name communication_agent --port 10020"
+        CMD_ARGS: "--agent-name communication_agent"
+        WAIT_FOR_CLIENT: "false"
     container_name: ohcm_communication_agent
     environment:
       - PYTHONPATH=/app
       - AGENT_NAME=communication_agent
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - REGISTRY_URL=http://ohcm_agent_registry:10000
+      # - REGISTRY_URL=http://ohcm_agent_registry:10000
+      - REGISTRY_URL=${REGISTRY_URL}
       - LANGSMITH_TRACING=${LANGSMITH_TRACING}
       - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
@@ -106,18 +110,21 @@ services:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "a2a_servers.agent"
-        CMD_ARGS: "--agent-name finance_agent --port 10020"
+        CMD_ARGS: "--agent-name finance_agent"
+        WAIT_FOR_CLIENT: "false"
     container_name: ohcm_finance_agent
     environment:
+      - PORT=10022
       - PYTHONPATH=/app
       - AGENT_NAME=finance_agent
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - REGISTRY_URL=http://ohcm_agent_registry:10000
+      # - REGISTRY_URL=http://ohcm_agent_registry:10000
+      - REGISTRY_URL=${REGISTRY_URL}
       - LANGSMITH_TRACING=${LANGSMITH_TRACING}
       - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
-      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}            
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}      
     ports:
       - "10022:10020"
       - "20004:5678"    # debugpy port for VS Code debugging
@@ -135,14 +142,16 @@ services:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "a2a_servers.agent"
-        CMD_ARGS: "--agent-name web_search_agent --port 10020"
+        CMD_ARGS: "--agent-name web_search_agent"
+        WAIT_FOR_CLIENT: "false"
     container_name: ohcm_web_search_agent
     environment:
       - PYTHONPATH=/app
       - AGENT_NAME=web_search_agent
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - REGISTRY_URL=http://ohcm_agent_registry:10000
+      # - REGISTRY_URL=http://ohcm_agent_registry:10000
+      - REGISTRY_URL=${REGISTRY_URL}
       - LANGSMITH_TRACING=${LANGSMITH_TRACING}
       - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}

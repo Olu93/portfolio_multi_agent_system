@@ -9,9 +9,6 @@ WORKDIR /app
 
 # Accept build argument for Poetry groups
 ARG POETRY_GROUPS="main"
-ARG IS_PROD="true"
-ARG CMD_MODULE=""
-ARG CMD_ARGS=""
 
 # Install build-time dependencies
 RUN apk add --no-cache \
@@ -58,9 +55,30 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # (Optional) create runtime dirs
 RUN mkdir -p /app/files/downloads /app/screenshots
 
-# Use the CMD_MODULE and CMD_ARGS build arguments, wrapping with debugpy when IS_PROD is false
+# Build args (stage-scoped) ➜ promote to ENV for runtime
+ARG IS_PROD="true"
+ARG CMD_MODULE=""
+ARG CMD_ARGS=""
+ARG DEBUG_PY_ARGS=""
+
+ENV IS_PROD=${IS_PROD}
+ENV CMD_MODULE=${CMD_MODULE}
+ENV CMD_ARGS=${CMD_ARGS}
+ENV DEBUG_PY_ARGS=${DEBUG_PY_ARGS}
+
+# Build-time validation/logging
+RUN test -n "$CMD_MODULE" || (echo "ERROR: CMD_MODULE is required"; exit 1)
+RUN echo "CMD_MODULE=$CMD_MODULE" && echo "CMD_ARGS=$CMD_ARGS" && echo "DEBUG_PY_ARGS=$DEBUG_PY_ARGS"
+
+
+RUN echo "python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 ${DEBUG_PY_ARGS} -m ${CMD_MODULE} ${CMD_ARGS};"
+
 CMD if [ "$IS_PROD" = "true" ]; then \
-        python -m ${CMD_MODULE} ${CMD_ARGS}; \
+        python -m "${CMD_MODULE}" "${CMD_ARGS}"; \
     else \
-        python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 --wait-for-client -- python -m ${CMD_MODULE} ${CMD_ARGS}; \
+        if [ -z "$CMD_ARGS" ]; then \
+            python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 "${DEBUG_PY_ARGS}" -m "${CMD_MODULE}"; \
+        else \
+            python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 "${DEBUG_PY_ARGS}" -m "${CMD_MODULE}" "${CMD_ARGS}"; \
+        fi; \
     fi
