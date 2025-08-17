@@ -8,7 +8,9 @@
     - Initial discovery: https://python-a2a.readthedocs.io/en/latest/guides/mcp.html
     - Available servers: https://github.com/themanojdesai/python-a2a?tab=readme-ov-file#%EF%B8%8F-provider-architecture-overview
     - How to run: https://github.com/themanojdesai/python-a2a/wiki/MCP-Integration#2-fastmcp
-
+- Introduce general agent
+- Switch to python-a2a
+- Introduce configuration validation
 
 
 ## Gather TODO's
@@ -37,5 +39,22 @@
 - Go through the code and check where there are multiline strings which mess up the indentation.
 - Replace these strings using "String1"\n"String2"\n"String3" pattern
 
+### Add information to readme.md
+- How to run in debug mode
+    - Set env var IS_PROD=false
+    - 
+
+## Weird Ideas Backlog (LLM: Don't do anything with that)
+### Create a ui interface to manage multiple debugpy servers
+- Would listen to multiple services
+- Features:
+    - Toggle break-points in files 
+    - Display stack-trace 
+    - Display local variables
+### Create lingua showcase
+- Make lingua an MCP server
+- Rename lingua to portfolio_smart_data_extraction
+
 ## Gathered TODO's
 LIST OF TODOS
+
