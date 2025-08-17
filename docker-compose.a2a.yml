@@ -37,6 +37,31 @@ services:
     command: python -m a2a_servers.registry
     restart: unless-stopped
 
+  supervisor-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "a2a"
+    container_name: ohcm_supervisor_agent
+    environment:
+      - PYTHONPATH=/app
+      - AGENT_NAME=supervisor_agent
+      - AGENT_CONFIG_DIR=/app/config/
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REGISTRY_URL=http://ohcm_agent_registry:10000
+    ports:
+      - "10030:10030"
+      - "5678:5678"    # debugpy port for VS Code debugging
+    volumes:
+      - ./src/a2a_servers:/app/a2a_servers
+      - ./config:/app/config
+    working_dir: /app
+    command: >
+      sh -c "pip install debugpy &&
+              python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 --wait-for-client -m a2a_servers.supervisor --agent-name supervisor_agent --port 10030"
+
+
   communication-agent:
     build:
       context: .
@@ -51,6 +76,8 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REGISTRY_URL=http://ohcm_agent_registry:10000
     # no ports section, internal only
+    ports:
+      - "10021:10020"
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
       - ./config:/app/config
@@ -71,6 +98,9 @@ services:
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REGISTRY_URL=http://ohcm_agent_registry:10000
+    ports:
+      - "10022:10020"
+
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
       - ./config:/app/config
@@ -91,6 +121,8 @@ services:
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REGISTRY_URL=http://ohcm_agent_registry:10000
+    ports:
+      - "10023:10020"
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
       - ./config:/app/config

@@ -42,6 +42,22 @@
                 "--port",
                 "${env:MCP_PORT}"
             ]
+        },
+        {
+            "name": "Docker: Attach to Supervisor",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/src",
+                    "remoteRoot": "/app"
+                }
+            ],
+            "justMyCode": false
         }
     ]
 }
