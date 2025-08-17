@@ -62,18 +62,6 @@ async def build_tools_from_registry(
         f"Building tools from registry with allow_urls={allow_urls}, allow_caps={allow_caps}"
     )
 
-    def _mk_payload(
-        content: str, ctx: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        return {
-            "role": "user",
-            "content": content,
-            "context": {
-                "task_id": str(uuid.uuid4()),
-                "timestamp": int(time.time()),
-                **(ctx or {}),
-            },
-        }
 
     def _safe_name(s: str) -> str:
         return re.sub(r"[^a-zA-Z0-9_]+", "_", s).strip("_").lower()
@@ -90,7 +78,7 @@ async def build_tools_from_registry(
             try:
                 # Use the ask method for simple text queries
                 logger.info(f"Sending message to {card.url}")
-                response = agent_client.send_message(Message(content=TextContent(text=content), role=MessageRole.USER))
+                response = agent_client.send_message(Message(content=TextContent(text=content), role=MessageRole.AGENT, metadata={**context}))
                 logger.info(f"Received response from {card.url}")
                 logger.debug(
                     f"Tool {card.name} returned response: {str(response)[:200]}..."
@@ -219,7 +207,11 @@ class Supervisor(A2AServer):
 
             # Use the LangGraph orchestration to process the task
 
-            result = asyncio.run(self.orchestrate(text))
+            result = asyncio.run(self.orchestrate(text, {
+                "task_id": task.id,
+                "session_id": task.session_id,
+                "message_id": message_data.get("message_id", ""),
+            }))
 
             # Update task with the orchestration results
             if result.get("ok"):

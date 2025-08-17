@@ -113,7 +113,7 @@ services:
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "a2a_servers.agent"
         CMD_ARGS: "--agent-name finance_agent"
-        DEBUG_PY_ARGS: "--wait-for-client"
+        # DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_finance_agent
     environment:
       - PYTHONPATH=/app
