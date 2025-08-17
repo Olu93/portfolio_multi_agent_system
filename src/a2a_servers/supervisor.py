@@ -15,17 +15,11 @@ from a2a_servers.config_loader import load_agent_config, load_model_config, load
 
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
-from langchain_core.tools import Tool
+from langchain_core.tools.structured import StructuredTool
 from langchain.chat_models import init_chat_model
 
 logger = logging.getLogger(__name__)
 
-# --- Defaults / constants ----------------------------------------------------
-SYSTEM_PROMPT = (
-    "You are the Supervisor. Choose the most relevant TOOL based on the task and the tool descriptions (capabilities). "
-    "You may call multiple tools sequentially if needed and then produce a concise final answer."
-)
-SUPERVISOR_AGENT = os.getenv("SUPERVISOR_AGENT", "supervisor")  # which agent YAML to load
 
 # --- Config helper -----------------------------------------------------------
 
@@ -44,7 +38,7 @@ async def fetch_agents() -> List[AgentCard]:
 
 # --- Tool factory from AgentCards -------------------------------------------
 
-async def build_tools_from_registry(allow_urls: set, allow_caps: set) -> List[Tool]:
+async def build_tools_from_registry(allow_urls: set, allow_caps: set) -> List[StructuredTool]:
     logger.info(f"Building tools from registry with allow_urls={allow_urls}, allow_caps={allow_caps}")
     
     def _mk_payload(content: str, ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -57,7 +51,7 @@ async def build_tools_from_registry(allow_urls: set, allow_caps: set) -> List[To
     def _safe_name(s: str) -> str:
         return re.sub(r"[^a-zA-Z0-9_]+", "_", s).strip("_").lower()
     
-    def _create_tool_for_card(card: AgentCard) -> Tool:
+    def _create_tool_for_card(card: AgentCard) -> StructuredTool:
         """Create a tool function for a specific agent card"""
         async def tool_impl(content: str, context: Optional[Dict[str, Any]] = None):
             logger.debug(f"Tool {card.name} called with content: {content[:100]}...")
@@ -79,7 +73,7 @@ async def build_tools_from_registry(allow_urls: set, allow_caps: set) -> List[To
         summary = f"{card.description or 'A2A agent'}. Caps: {desc_caps or 'unspecified'}"
         
         logger.debug(f"Creating tool '{tool_name}' for agent '{card.name}' at {card.url}")
-        return Tool.from_function(
+        return StructuredTool.from_function(
             coroutine=tool_impl,
             name=tool_name,
             description=summary,
@@ -98,7 +92,7 @@ async def build_tools_from_registry(allow_urls: set, allow_caps: set) -> List[To
         cards = [c for c in cards if allow_caps & set((c.capabilities or {}).keys())]
         logger.info(f"Filtered by allow_caps: {original_count} -> {len(cards)} agents")
 
-    tools: List[Tool] = []
+    tools: List[StructuredTool] = []
     for card in cards:
         tools.append(_create_tool_for_card(card))
     
@@ -107,20 +101,18 @@ async def build_tools_from_registry(allow_urls: set, allow_caps: set) -> List[To
 
 # --- LangGraph supervisor agent ----------------------------------------------
 
-async def build_supervisor_graph():
+async def build_supervisor_graph(agent_name=None):
     logger.info("Building supervisor graph")
     
     # Load configuration directly
-    logger.debug(f"Loading configuration for supervisor agent: {SUPERVISOR_AGENT}")
-    agent_cfg = load_agent_config(SUPERVISOR_AGENT)
+    logger.debug(f"Loading configuration for supervisor agent: {agent_name}")
+    agent_cfg = load_agent_config(agent_name)
     logger.debug(f"Agent config loaded: {agent_cfg}")
     
-    model_cfg = (
-        load_model_config(agent_cfg["model"]) if isinstance(agent_cfg.get("model"), str) else agent_cfg.get("model", {})
-    )
+    model_cfg = load_model_config(agent_cfg.get("model", "default"))
     logger.debug(f"Model config loaded: {model_cfg}")
     
-    prompt = load_prompt_config(agent_cfg.get("prompt_file", "supervisor.txt")) or SYSTEM_PROMPT
+    prompt = load_prompt_config(agent_cfg.get("prompt_file", "supervisor_agent.txt"))
     logger.debug(f"Prompt loaded, length: {len(prompt)} characters")
     
     # optional routing limits
@@ -143,8 +135,9 @@ async def build_supervisor_graph():
 
 # --- Public API ---------------------------------------------------------------
 class Supervisor:
-    def __init__(self, graph=None):
-        self.graph = graph
+    def __init__(self, agent_name=None):
+        self.graph = None
+        self.agent_name = agent_name
         self._lock = asyncio.Lock()
         self._last_refresh = 0
         logger.info("Supervisor instance initialized")
@@ -156,7 +149,7 @@ class Supervisor:
             async with self._lock:
                 if self.graph is None or (time.time() - self._last_refresh) > REFRESH_SECS:
                     logger.info("Building new supervisor graph")
-                    self.graph = await build_supervisor_graph()
+                    self.graph = await build_supervisor_graph(self.agent_name)
                     self._last_refresh = time.time()
                     logger.info("Supervisor graph built and ready")
                 else:
@@ -168,7 +161,7 @@ class Supervisor:
         
         await self._ensure_graph()
         
-        inputs = {"messages": [("system", SYSTEM_PROMPT), ("user", content)], "context": context or {}}
+        inputs = {"messages": [("user", content)], "context": context or {}}
         logger.debug("Invoking supervisor graph")
         
         result = await self.graph.ainvoke(inputs)
@@ -189,9 +182,9 @@ class Supervisor:
 @click.option("--log-level", default="info", help="Log level")
 def run_supervisor(agent_name: str, host: str, port: int, log_level: str):
     """Run the Supervisor agent server."""
-    os.environ["SUPERVISOR_AGENT"] = agent_name
+    
     logger.info(f"Starting Supervisor agent '{agent_name}' on {host}:{port}")
-    sup = Supervisor()
+    sup = Supervisor(agent_name=agent_name)
     asyncio.run(sup._ensure_graph())
     logger.info("Supervisor is initialized and ready.")
 

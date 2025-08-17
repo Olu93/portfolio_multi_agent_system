@@ -4,6 +4,11 @@
 - Update langgraph dependency to ">0.6"
 - Introduce ruff https://github.com/astral-sh/ruff
 - Maybe introduce test runner https://github.com/nat-n/poethepoet
+- Introduce pre-prepared MCP servers from python-a2a 
+    - Initial discovery: https://python-a2a.readthedocs.io/en/latest/guides/mcp.html
+    - Available servers: https://github.com/themanojdesai/python-a2a?tab=readme-ov-file#%EF%B8%8F-provider-architecture-overview
+    - How to run: https://github.com/themanojdesai/python-a2a/wiki/MCP-Integration#2-fastmcp
+
 
 
 ## Gather TODO's

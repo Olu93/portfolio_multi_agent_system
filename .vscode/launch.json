@@ -22,7 +22,7 @@
             "cwd": "${workspaceFolder}/src",
             "args": [
                 "--agent-name",
-                "supervisor"
+                "supervisor_agent"
             ]
         },
 
