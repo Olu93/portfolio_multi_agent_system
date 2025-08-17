@@ -23,6 +23,7 @@ services:
       dockerfile: Dockerfile.base
       args:
         POETRY_GROUPS: "a2a"
+        IS_PROD: ${IS_PROD}
     container_name: ohcm_agent_registry
     environment:
       - PYTHONPATH=/app
@@ -43,6 +44,7 @@ services:
       dockerfile: Dockerfile.base
       args:
         POETRY_GROUPS: "a2a"
+        IS_PROD: ${IS_PROD}
     container_name: ohcm_supervisor_agent
     environment:
       - PYTHONPATH=/app
@@ -72,6 +74,7 @@ services:
       dockerfile: Dockerfile.base
       args:
         POETRY_GROUPS: "a2a"
+        IS_PROD: ${IS_PROD}
     container_name: ohcm_communication_agent
     environment:
       - PYTHONPATH=/app
@@ -99,6 +102,7 @@ services:
       dockerfile: Dockerfile.base
       args:
         POETRY_GROUPS: "a2a"
+        IS_PROD: ${IS_PROD}
     container_name: ohcm_finance_agent
     environment:
       - PYTHONPATH=/app
@@ -126,6 +130,7 @@ services:
       dockerfile: Dockerfile.base
       args:
         POETRY_GROUPS: "a2a"
+        IS_PROD: ${IS_PROD}
     container_name: ohcm_web_search_agent
     environment:
       - PYTHONPATH=/app

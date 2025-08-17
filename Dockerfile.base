@@ -9,6 +9,7 @@ WORKDIR /app
 
 # Accept build argument for Poetry groups
 ARG POETRY_GROUPS="main"
+ARG IS_PROD="true"
 
 # Install build-time dependencies
 RUN apk add --no-cache \
@@ -26,8 +27,12 @@ ENV POETRY_VIRTUALENVS_CREATE=false \
 # Copy dependency definitions
 COPY pyproject.toml poetry.lock README.md ./
 
-# Install Python dependencies with specified groups
-RUN poetry install --only main,${POETRY_GROUPS} --no-root --no-interaction --no-ansi
+# Install dependencies based on environment
+RUN if [ "$IS_PROD" = "true" ]; then \
+        poetry install --only main,${POETRY_GROUPS} --no-root --no-interaction --no-ansi; \
+    else \
+        poetry install --only main,${POETRY_GROUPS},debug --no-root --no-interaction --no-ansi; \
+    fi
 
 
 #############################

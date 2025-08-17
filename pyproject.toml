@@ -58,6 +58,10 @@ ipykernel = "^6.29.5"
 
 
 
+
+[tool.poetry.group.debug.dependencies]
+debugpy = "^1.8.16"
+
 [tool.yapf]
 based_on_style = "pep8"
 column_limit = 150

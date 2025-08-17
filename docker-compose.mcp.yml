@@ -43,6 +43,7 @@ services:
       dockerfile: Dockerfile.base
       args:
         POETRY_GROUPS: "mcp"
+        IS_PROD: ${IS_PROD}
     container_name: ohcm_calendar_mcp
     environment:
       - MCP_HOST=0.0.0.0
@@ -60,6 +61,7 @@ services:
       dockerfile: Dockerfile.base
       args:
         POETRY_GROUPS: "mcp"
+        IS_PROD: ${IS_PROD}
     container_name: ohcm_yfinance_mcp
     environment:
       - MCP_HOST=0.0.0.0
@@ -77,6 +79,7 @@ services:
       dockerfile: Dockerfile.base
       args:
         POETRY_GROUPS: "mcp"
+        IS_PROD: ${IS_PROD}
     container_name: ohcm_smtp_mcp
     environment:
       - MCP_HOST=0.0.0.0
@@ -101,6 +104,7 @@ services:
       dockerfile: Dockerfile.base
       args:
         POETRY_GROUPS: "mcp"
+        IS_PROD: ${IS_PROD}
     container_name: ohcm_serper_mcp
     environment:
       - MCP_HOST=0.0.0.0
@@ -120,6 +124,7 @@ services:
       dockerfile: Dockerfile.base
       args:
         POETRY_GROUPS: "mcp"
+        IS_PROD: ${IS_PROD}
     container_name: ohcm_duckduckgo_mcp
     environment:
       - MCP_HOST=0.0.0.0
@@ -158,6 +163,7 @@ services:
       dockerfile: Dockerfile.base
       args:
         POETRY_GROUPS: "mcp"
+        IS_PROD: ${IS_PROD}
     container_name: ohcm_file_storage_mcp
     environment:
       - MCP_HOST=0.0.0.0
