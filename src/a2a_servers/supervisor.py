@@ -14,6 +14,7 @@ from python_a2a import (
     A2AClient,
     AgentCard,
     A2AServer,
+    Task,
     run_server,
     TaskStatus,
     TaskState,
@@ -69,7 +70,19 @@ async def build_tools_from_registry(
     def _create_tool_for_card(card: AgentCard) -> StructuredTool:
         """Create a tool function for a specific agent card"""
 
-        async def tool_impl(content: str, context: Optional[Dict[str, Any]] = None):
+        async def tool_impl(content: str, context: Dict[str, Any] = {}):
+            """
+            content: str - the content of the message to send to the agent
+            context: Dict[str, Any] - the context of the message
+
+            The context is a dictionary of key-value pairs that are passed to the agent.
+            It is used to pass information to the agent, such as the task_id, message_id, session_id, conversation_id, and other metadata.
+            The task_id is a unique identifier for the task, the message_id is a unique identifier for the message, and the session_id is a unique identifier for the session.
+            The task_id, message_id, and session_id are used to identify the task, message, and session in the A2A protocol.
+            The conversation_id is a unique identifier for the conversation. The conversation_id is used to identify the conversation in the A2A protocol.
+            """
+
+            
             logger.debug(f"Tool {card.name} called with content: {content[:100]}...")
 
             # Create a dedicated A2AClient for this specific agent
@@ -195,7 +208,7 @@ class Supervisor(A2AServer):
         self.port = port
         logger.info(f"Supervisor A2A agent initialized at {url}")
 
-    def handle_task(self, task):
+    def handle_task(self, task: Task):
         """Handle incoming A2A tasks - this is the A2A protocol method."""
         try:
             # Extract content from task
@@ -214,6 +227,10 @@ class Supervisor(A2AServer):
                 "task_id": task.id,
                 "session_id": task.session_id,
                 "message_id": message_data.get("message_id", ""),
+                "conversation_id": message_data.get("conversation_id", ""),
+                "metadata": task.metadata,
+                
+
             }))
 
             # Update task with the orchestration results

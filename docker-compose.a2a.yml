@@ -96,7 +96,6 @@ services:
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}            
     # no ports section, internal only
     ports:
-      - "10021:10020"
       - "20003:5678"    # debugpy port for VS Code debugging
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
@@ -127,7 +126,6 @@ services:
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}      
     ports:
-      - "10022:10020"
       - "20004:5678"    # debugpy port for VS Code debugging
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
@@ -158,7 +156,6 @@ services:
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}            
     ports:
-      - "10023:10020"
       - "20005:5678"    # debugpy port for VS Code debugging
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
