@@ -12,6 +12,12 @@
 - Switch to python-a2a
 - Introduce configuration validation
 
+## Next up
+[] User Interface
+[] Add logging to mcp servers 
+[] Change to python SDK agents
+[] Fix double sends
+
 
 ## Gather TODO's
 - Go through each file in a2a_servers and look for TODO comments and add them below in this TODO.md.

@@ -194,7 +194,7 @@ class Supervisor(A2AServer):
         agent_card = AgentCard(
             name=self.agent_name,
             description=description,
-            url=url,
+            url=self.agent_cfg["agent_url"],
             capabilities=capabilities,
             skills=skills,
         )
