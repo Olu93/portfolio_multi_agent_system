@@ -185,7 +185,7 @@ services:
         IS_PROD: ${IS_PROD}
         CMD_MODULE: file_storage
         CMD_ARGS: ""
-        DEBUG_PY_ARGS: "--wait-for-client"
+        DEBUG_PY_ARGS: ""
     container_name: ohcm_file_storage_mcp
     environment:
       - MCP_HOST=0.0.0.0
