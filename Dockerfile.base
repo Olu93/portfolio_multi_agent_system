@@ -73,12 +73,24 @@ RUN echo "CMD_MODULE=$CMD_MODULE CMD_ARGS=$CMD_ARGS DEBUG_PY_ARGS=$DEBUG_PY_ARGS
 
 RUN echo "python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 ${DEBUG_PY_ARGS} -m ${CMD_MODULE} ${CMD_ARGS};"
 
-CMD if [ "$IS_PROD" = "true" ]; then \
-        python -m "${CMD_MODULE}" "${CMD_ARGS}"; \
-    else \
-        if [ -z "$CMD_ARGS" ]; then \
-            python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678"${DEBUG_PY_ARGS}" -m "${CMD_MODULE}"; \
-        else \
-            python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678"${DEBUG_PY_ARGS}" -m "${CMD_MODULE}" "${CMD_ARGS}"; \
-        fi; \
-    fi
+# CMD if [ "$IS_PROD" = "true" ]; then \
+#         python -m "${CMD_MODULE}" "${CMD_ARGS}"; \
+#     else \
+#         if [ -z "$CMD_ARGS" ]; then \
+#             python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 "${DEBUG_PY_ARGS}" -m "${CMD_MODULE}"; \
+#         else \
+#             python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 "${DEBUG_PY_ARGS}" -m "${CMD_MODULE}" "${CMD_ARGS}"; \
+#         fi; \
+#     fi
+
+# Replace your CMD with this
+CMD ["sh","-lc","\
+if [ \"$IS_PROD\" = \"true\" ]; then \
+  set -- python -m \"$CMD_MODULE\"; \
+else \
+  set -- python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678; \
+  for a in $DEBUG_PY_ARGS; do set -- \"$@\" \"$a\"; done; \
+  set -- \"$@\" -m \"$CMD_MODULE\"; \
+fi; \
+for a in $CMD_ARGS; do set -- \"$@\" \"$a\"; done; \
+exec \"$@\""]

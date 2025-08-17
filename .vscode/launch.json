@@ -44,7 +44,23 @@
             ]
         },
         {
-            "name": "Docker: Attach to Supervisor",
+            "name": "Docker: Attach to agent",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": "${input:debugpyPort}"
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/src",
+                    "remoteRoot": "/app"
+                }
+            ],
+            "justMyCode": false,
+        },
+        {
+            "name": "Docker: Attach to specific agent",
             "type": "debugpy",
             "request": "attach",
             "connect": {
@@ -62,10 +78,16 @@
     ],
     "inputs": [
         {
-            "type": "prompt",
+            "type": "pickString",
             "id": "debugpyPort",
             "description": "Debugpy Port",
-            "default": "5678"
+            "default": "20002",
+            "options": [
+                "20002",
+                "20003",
+                "20004",
+                "20005"
+            ]
         }
     ]
 }
