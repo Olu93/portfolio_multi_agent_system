@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional, List, Callable
 import click
 import httpx
 from python_a2a import (
+    A2AClient,
     AgentCard,
     A2AServer,
     run_server,

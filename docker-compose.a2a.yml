@@ -50,6 +50,10 @@ services:
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REGISTRY_URL=http://ohcm_agent_registry:10000
+      - LANGSMITH_TRACING=${LANGSMITH_TRACING}
+      - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}      
     ports:
       - "10030:10030"
       - "5678:5678"    # debugpy port for VS Code debugging
@@ -75,6 +79,10 @@ services:
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REGISTRY_URL=http://ohcm_agent_registry:10000
+      - LANGSMITH_TRACING=${LANGSMITH_TRACING}
+      - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}            
     # no ports section, internal only
     ports:
       - "10021:10020"
@@ -98,6 +106,10 @@ services:
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REGISTRY_URL=http://ohcm_agent_registry:10000
+      - LANGSMITH_TRACING=${LANGSMITH_TRACING}
+      - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}            
     ports:
       - "10022:10020"
 
@@ -121,6 +133,10 @@ services:
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REGISTRY_URL=http://ohcm_agent_registry:10000
+      - LANGSMITH_TRACING=${LANGSMITH_TRACING}
+      - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}            
     ports:
       - "10023:10020"
     volumes:

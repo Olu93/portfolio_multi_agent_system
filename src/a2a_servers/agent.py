@@ -59,13 +59,14 @@ class Agent:
         'Set response status to completed if the request is complete.'
     )
 
-    def __init__(self, model, tools, prompt):
+    def __init__(self, name, model, tools, prompt):
         self.model = model
         self.tools = tools
         self.prompt = prompt
 
         self.graph = create_react_agent(
-            self.model,
+            name=name,
+            model=self.model,
             tools=self.tools,
             checkpointer=memory,
             prompt=self.prompt,
@@ -281,7 +282,7 @@ async def create_sub_agent(agent_name: str):
 
         prompt = f"{meta_prompt}\n\n{prompt_config}"
 
-        agent = Agent(model, tools, prompt)
+        agent = Agent(agent_name, model, tools, prompt)
 
         # Create executor with custom parameters
         executor = BaseAgentExecutor(
