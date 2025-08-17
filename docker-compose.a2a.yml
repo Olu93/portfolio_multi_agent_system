@@ -47,9 +47,11 @@ services:
       args:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
-        CMD_MODULE: "a2a_servers.agent"
+        CMD_MODULE: "a2a_servers.supervisor"
         CMD_ARGS: "--agent-name supervisor_agent"
-        DEBUG_PY_ARGS: ""
+        # DEBUG_PY_ARGS: "--wait-for-client"
+        HOST: 0.0.0.0
+        PORT: 10020
     container_name: ohcm_supervisor_agent
     environment:
       - PYTHONPATH=/app
@@ -79,7 +81,7 @@ services:
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "a2a_servers.agent"
         CMD_ARGS: "--agent-name communication_agent"
-        DEBUG_PY_ARGS: ""
+        # DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_communication_agent
     environment:
       - PYTHONPATH=/app
@@ -111,10 +113,9 @@ services:
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "a2a_servers.agent"
         CMD_ARGS: "--agent-name finance_agent"
-        DEBUG_PY_ARGS: ""
+        DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_finance_agent
     environment:
-      - PORT=10022
       - PYTHONPATH=/app
       - AGENT_NAME=finance_agent
       - AGENT_CONFIG_DIR=/app/config/
@@ -143,7 +144,7 @@ services:
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "a2a_servers.agent"
         CMD_ARGS: "--agent-name web_search_agent"
-        DEBUG_PY_ARGS: ""
+        # DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_web_search_agent
     environment:
       - PYTHONPATH=/app

@@ -85,11 +85,13 @@ async def build_tools_from_registry(
             logger.debug(f"Tool {card.name} called with content: {content[:100]}...")
 
             # Create a dedicated A2AClient for this specific agent
-            agent_client = A2AClient(endpoint_url=card.url)
+            agent_client = A2AClient(endpoint_url=card.url, google_a2a_compatible=True)
 
             try:
                 # Use the ask method for simple text queries
-                response = agent_client.ask(content)
+                logger.info(f"Sending message to {card.url}")
+                response = agent_client.send_message(Message(content=TextContent(text=content), role=MessageRole.USER))
+                logger.info(f"Received response from {card.url}")
                 logger.debug(
                     f"Tool {card.name} returned response: {str(response)[:200]}..."
                 )
@@ -167,12 +169,12 @@ async def build_supervisor_graph(agent_name=None):
     tools = await build_tools_from_registry(allow_urls, allow_caps)
 
     logger.info("Creating react agent with tools and prompt")
-    return create_react_agent(model, tools, prompt=prompt)
+    return create_react_agent(model, tools, prompt=prompt, name=agent_name)
 
 
 # --- Public API ---------------------------------------------------------------
 class Supervisor(A2AServer):
-    def __init__(self, agent_name=None, host="0.0.0.0", port=10030):
+    def __init__(self, agent_name=None, host=None, port=None):
         # Set the URL for this supervisor agent
         url = f"http://{host}:{port}"
         self.agent_name = agent_name
@@ -280,13 +282,11 @@ class Supervisor(A2AServer):
 
         return {"ok": True, "content": final, "raw": result}
 
-    def run_server(self, host=None, port=None):
+    def run_server(self):
         """Run the supervisor as an A2A server"""
-        host = host or self.host
-        port = port or self.port
-        logger.info(f"Starting Supervisor A2A server on {host}:{port}")
+        logger.info(f"Starting Supervisor A2A server on {self.host}:{self.port}")
         # Use the imported run_server function from python_a2a
-        run_server(self, host=host, port=port)
+        run_server(self, host=self.host, port=self.port)
 
 
 # --- CLI entrypoint -----------------------------------------------------------
@@ -298,14 +298,13 @@ class Supervisor(A2AServer):
     default="supervisor",
     help="Name of the supervisor agent config to load",
 )
-@click.option("--host", default="0.0.0.0", help="Host to run the supervisor on")
-@click.option("--port", default=10030, help="Port to run the supervisor on")
-@click.option("--log-level", default="info", help="Log level")
-def run_supervisor(agent_name: str, host: str, port: int, log_level: str):
+def run_supervisor(agent_name: str):
     """Run the Supervisor agent server."""
+    HOST = os.getenv("HOST", "0.0.0.0")
+    PORT = int(os.getenv("PORT", 10020))
 
-    logger.info(f"Starting Supervisor agent '{agent_name}' on {host}:{port}")
-    sup = Supervisor(agent_name=agent_name, host=host, port=port)
+    logger.info(f"Starting Supervisor agent '{agent_name}'")
+    sup = Supervisor(agent_name=agent_name, host=HOST, port=PORT)
     asyncio.run(sup._ensure_graph())
     logger.info("Supervisor is initialized and ready.")
 
