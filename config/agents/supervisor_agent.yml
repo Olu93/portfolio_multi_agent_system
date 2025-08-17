@@ -1,6 +1,10 @@
 name: "Supervisor-Agent"
 description: "An agent that can supervise the other agents"
 agent_url: "http://ohcm_supervisor_agent:10020"
-tools:
+skills:
+  - name: "Orchestrate Agents"
+    description: "Orchestrate the other agents"
+    tags: ["orchestration", "supervision", "langgraph", "a2a_registry"]
+    examples: ["Search the web for the latest news about Apple Inc.", "Show me Apple Inc. stock price"]
 meta_prompt: "You are a helpful assistant that can supervise the other agents"
 prompt_file: "supervisor_agent.txt"
