@@ -10,6 +10,8 @@ WORKDIR /app
 # Accept build argument for Poetry groups
 ARG POETRY_GROUPS="main"
 ARG IS_PROD="true"
+ARG CMD_MODULE=""
+ARG CMD_ARGS=""
 
 # Install build-time dependencies
 RUN apk add --no-cache \
@@ -28,11 +30,7 @@ ENV POETRY_VIRTUALENVS_CREATE=false \
 COPY pyproject.toml poetry.lock README.md ./
 
 # Install dependencies based on environment
-RUN if [ "$IS_PROD" = "true" ]; then \
-        poetry install --only main,${POETRY_GROUPS} --no-root --no-interaction --no-ansi; \
-    else \
-        poetry install --only main,${POETRY_GROUPS},debug --no-root --no-interaction --no-ansi; \
-    fi
+RUN poetry install --only main,${POETRY_GROUPS},debug --no-root --no-interaction --no-ansi;
 
 
 #############################
@@ -60,4 +58,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # (Optional) create runtime dirs
 RUN mkdir -p /app/files/downloads /app/screenshots
 
-CMD ["python", "--version"]
+# Use the CMD_MODULE and CMD_ARGS build arguments, wrapping with debugpy when IS_PROD is false
+CMD if [ "$IS_PROD" = "true" ]; then \
+        python -m ${CMD_MODULE} ${CMD_ARGS}; \
+    else \
+        python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 --wait-for-client -- python -m ${CMD_MODULE} ${CMD_ARGS}; \
+    fi

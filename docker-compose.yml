@@ -1,0 +1,7 @@
+# docker-compose.yml
+version: '3.8'
+
+# Import A2A services
+include:
+  - docker-compose.a2a.yml
+  - docker-compose.mcp.yml

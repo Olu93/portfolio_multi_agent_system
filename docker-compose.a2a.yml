@@ -24,6 +24,8 @@ services:
       args:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
+        CMD_MODULE: "a2a_servers.registry"
+        CMD_ARGS: ""
     container_name: ohcm_agent_registry
     environment:
       - PYTHONPATH=/app
@@ -31,11 +33,11 @@ services:
       - PORT=10000
     ports:
       - "10000:10000"
+      - "20001:5678"    # debugpy port for VS Code debugging
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
       - ./config:/app/config:ro
     working_dir: /app
-    command: python -m a2a_servers.registry
     restart: unless-stopped
 
   supervisor-agent:
@@ -45,6 +47,8 @@ services:
       args:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
+        CMD_MODULE: "a2a_servers.supervisor"
+        CMD_ARGS: "--agent-name supervisor_agent --port 10020"
     container_name: ohcm_supervisor_agent
     environment:
       - PYTHONPATH=/app
@@ -57,16 +61,12 @@ services:
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}      
     ports:
-      - "10030:10030"
-      - "5678:5678"    # debugpy port for VS Code debugging
+      - "10020:10020"
+      - "20002:5678"    # debugpy port for VS Code debugging
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
       - ./config:/app/config
     working_dir: /app
-    command: >
-      sh -c "pip install debugpy &&
-              python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 --wait-for-client -m a2a_servers.supervisor --agent-name supervisor_agent --port 10030"
-
 
   communication-agent:
     build:
@@ -75,6 +75,8 @@ services:
       args:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
+        CMD_MODULE: "a2a_servers.agent"
+        CMD_ARGS: "--agent-name communication_agent --port 10020"
     container_name: ohcm_communication_agent
     environment:
       - PYTHONPATH=/app
@@ -89,11 +91,11 @@ services:
     # no ports section, internal only
     ports:
       - "10021:10020"
+      - "20003:5678"    # debugpy port for VS Code debugging
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
       - ./config:/app/config
     working_dir: /app
-    command: python -m a2a_servers.agent --agent-name communication_agent --port 10020
     restart: unless-stopped
 
   finance-agent:
@@ -103,6 +105,8 @@ services:
       args:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
+        CMD_MODULE: "a2a_servers.agent"
+        CMD_ARGS: "--agent-name finance_agent --port 10020"
     container_name: ohcm_finance_agent
     environment:
       - PYTHONPATH=/app
@@ -116,12 +120,11 @@ services:
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}            
     ports:
       - "10022:10020"
-
+      - "20004:5678"    # debugpy port for VS Code debugging
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
       - ./config:/app/config
     working_dir: /app
-    command: python -m a2a_servers.agent --agent-name finance_agent --port 10020
     restart: unless-stopped
 
   web-search-agent:
@@ -131,6 +134,8 @@ services:
       args:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
+        CMD_MODULE: "a2a_servers.agent"
+        CMD_ARGS: "--agent-name web_search_agent --port 10020"
     container_name: ohcm_web_search_agent
     environment:
       - PYTHONPATH=/app
@@ -144,11 +149,11 @@ services:
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}            
     ports:
       - "10023:10020"
+      - "20005:5678"    # debugpy port for VS Code debugging
     volumes:
       - ./src/a2a_servers:/app/a2a_servers
       - ./config:/app/config
     working_dir: /app
-    command: python -m a2a_servers.agent --agent-name web_search_agent --port 10020
     restart: unless-stopped
 
 networks:

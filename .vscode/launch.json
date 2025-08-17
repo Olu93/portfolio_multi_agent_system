@@ -14,8 +14,9 @@
                 "--agent-name",
                 "web_search_agent"
             ]
-        }, 
-        {"name":"Execute Supervisor",
+        },
+        {
+            "name": "Execute Supervisor",
             "type": "debugpy",
             "request": "launch",
             "module": "a2a_servers.supervisor",
@@ -25,7 +26,6 @@
                 "supervisor_agent"
             ]
         },
-
         {
             "name": "Execute MCP Server",
             "type": "debugpy",
@@ -49,7 +49,7 @@
             "request": "attach",
             "connect": {
                 "host": "localhost",
-                "port": 5678
+                "port": "${input:debugpyPort}"
             },
             "pathMappings": [
                 {
@@ -57,7 +57,15 @@
                     "remoteRoot": "/app"
                 }
             ],
-            "justMyCode": false
+            "justMyCode": false,
+        }
+    ],
+    "inputs": [
+        {
+            "type": "prompt",
+            "id": "debugpyPort",
+            "description": "Debugpy Port",
+            "default": "5678"
         }
     ]
 }
