@@ -5,6 +5,14 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Attach to Chrome",
+            "request": "launch",
+            "type": "chrome",
+            "url": "http://localhost:5173",
+            "webRoot": "${workspaceFolder}/frontend"
+        },
+
+        {
             "name": "Agent: Web Search",
             "type": "debugpy",
             "request": "launch",
@@ -74,7 +82,8 @@
                 }
             ],
             "justMyCode": false,
-        }
+        },
+        
     ],
     "inputs": [
         {

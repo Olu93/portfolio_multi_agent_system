@@ -1,0 +1,1 @@
+export const SUPERVISOR_URL = import.meta.env.VITE_AGENT_URL;

@@ -27,6 +27,7 @@ import Markdown from "react-markdown";
 import { ChatInterfaceBanner } from "../components/CombinedInterfaceBanners";
 import { A2AClient } from "@a2a-js/sdk/client";
 import { v4 as uuidv4 } from "uuid";
+import { SUPERVISOR_URL } from "../constants.jsx";
 
 const StyledContainer = styled(Box)(({ theme }) => ({
   display: "flex",
@@ -81,80 +82,80 @@ const ChatUI = () => {
     setMobileOpen(!mobileOpen);
   };
 
-  const handleMessageSend = async () => {
-    if (message.trim()) {
-      const userMessage = {
-        id: messages.length + 1,
-        text: message,
-        isOwn: true,
-        timestamp: new Date().toLocaleTimeString(),
-      };
-      setMessages([...messages, userMessage]);
-      setMessage("");
+  // const handleMessageSend = async () => {
+  //   if (message.trim()) {
+  //     const userMessage = {
+  //       id: messages.length + 1,
+  //       text: message,
+  //       isOwn: true,
+  //       timestamp: new Date().toLocaleTimeString(),
+  //     };
+  //     setMessages([...messages, userMessage]);
+  //     setMessage("");
 
-      try {
-        const response = await fetch("http://127.0.0.1:8000/pitchdeck/ask", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            query: message,
-            history: messages.map(
-              (msg) => `${msg.isOwn ? "User" : "AI"}:${msg.text}`
-            ),
-          }),
-        });
+  //     try {
+  //       const response = await fetch("http://127.0.0.1:8000/pitchdeck/ask", {
+  //         method: "POST",
+  //         headers: { "Content-Type": "application/json" },
+  //         body: JSON.stringify({
+  //           query: message,
+  //           history: messages.map(
+  //             (msg) => `${msg.isOwn ? "User" : "AI"}:${msg.text}`
+  //           ),
+  //         }),
+  //       });
 
-        if (!response.body) {
-          throw new Error(
-            "ReadableStream is not supported in this environment."
-          );
-        }
+  //       if (!response.body) {
+  //         throw new Error(
+  //           "ReadableStream is not supported in this environment."
+  //         );
+  //       }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder("utf-8");
-        let result = "";
+  //       const reader = response.body.getReader();
+  //       const decoder = new TextDecoder("utf-8");
+  //       let result = "";
 
-        // Add a placeholder message for the bot's response
-        setMessages((prevMessages) => [
-          ...prevMessages,
-          {
-            id: prevMessages.length + 2,
-            text: "",
-            isOwn: false,
-            timestamp: new Date().toLocaleTimeString(),
-          }, //Placeholder
-        ]);
-        let messageIndex = messages.length + 1;
+  //       // Add a placeholder message for the bot's response
+  //       setMessages((prevMessages) => [
+  //         ...prevMessages,
+  //         {
+  //           id: prevMessages.length + 2,
+  //           text: "",
+  //           isOwn: false,
+  //           timestamp: new Date().toLocaleTimeString(),
+  //         }, //Placeholder
+  //       ]);
+  //       let messageIndex = messages.length + 1;
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          result += decoder.decode(value, { stream: true });
+  //       while (true) {
+  //         const { done, value } = await reader.read();
+  //         if (done) break;
+  //         result += decoder.decode(value, { stream: true });
 
-          // Update the LAST message in the array
-          setMessages((prevMessages) => {
-            const updatedMessages = [...prevMessages];
-            updatedMessages[messageIndex] = {
-              ...updatedMessages[messageIndex],
-              text: result,
-            };
-            return updatedMessages;
-          });
-        }
-      } catch (error) {
-        console.error("Error sending message:", error);
-        // Handle error, e.g., by updating the last message with an error message
-        setMessages((prevMessages) => {
-          const updatedMessages = [...prevMessages];
-          updatedMessages[updatedMessages.length - 1] = {
-            ...updatedMessages[updatedMessages.length - 1],
-            text: "Error fetching response.",
-          };
-          return updatedMessages;
-        });
-      }
-    }
-  };
+  //         // Update the LAST message in the array
+  //         setMessages((prevMessages) => {
+  //           const updatedMessages = [...prevMessages];
+  //           updatedMessages[messageIndex] = {
+  //             ...updatedMessages[messageIndex],
+  //             text: result,
+  //           };
+  //           return updatedMessages;
+  //         });
+  //       }
+  //     } catch (error) {
+  //       console.error("Error sending message:", error);
+  //       // Handle error, e.g., by updating the last message with an error message
+  //       setMessages((prevMessages) => {
+  //         const updatedMessages = [...prevMessages];
+  //         updatedMessages[updatedMessages.length - 1] = {
+  //           ...updatedMessages[updatedMessages.length - 1],
+  //           text: "Error fetching response.",
+  //         };
+  //         return updatedMessages;
+  //       });
+  //     }
+  //   }
+  // };
 
 
   const handleMessageSend2 = async () => {
@@ -170,7 +171,7 @@ const ChatUI = () => {
 
       try {
         // Initialize A2A client
-        const client = new A2AClient("http://localhost:41241"); // Replace with your server URL
+        const client = new A2AClient(SUPERVISOR_URL); // Replace with your server URL
         const messageId = uuidv4();
         let taskId;
 
