@@ -24,7 +24,7 @@ ENV POETRY_VIRTUALENVS_CREATE=false \
     PYTHONPATH=/app
 
 # Copy dependency definitions
-COPY pyproject.toml poetry.lock README.md ./
+COPY ./backend/pyproject.toml ./backend/poetry.lock ./backend/README.md ./
 
 # Install dependencies based on environment
 RUN poetry install --only main,${POETRY_GROUPS},debug --no-root --no-interaction --no-ansi;
