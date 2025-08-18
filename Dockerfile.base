@@ -50,7 +50,7 @@ COPY --from=builder /usr/local/lib/python3.12 /usr/local/lib/python3.12
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy app source
-# COPY ./src/mcp_servers /app/mcp_servers
+# COPY ./backend/src/mcp_servers /app/mcp_servers
 
 # (Optional) create runtime dirs
 RUN mkdir -p /app/files/downloads /app/screenshots

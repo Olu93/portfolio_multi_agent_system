@@ -1,9 +1,9 @@
 {
     "python.analysis.extraPaths": [
-        "./src"
+        "./backend/src"
     ],
     "python.terminal.activateEnvironment": true,
     "terminal.integrated.env.linux": {
-        "PYTHONPATH": "${workspaceFolder}/src"
+        "PYTHONPATH": "${workspaceFolder}/backend/src"
     }
 }

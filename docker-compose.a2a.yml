@@ -12,8 +12,8 @@ services:
     ports:
       - "9001:9001"          # only expose if you need host access
     volumes:
-      - ./src/a2a_servers:/app/a2a_servers:ro
-      - ./config:/app/config:ro
+      - ./backend/src/a2a_servers:/app/a2a_servers:ro
+      - ./backend/config:/app/config:ro
     working_dir: /app/backend
     command: uv run -- uvicorn app:app --host 0.0.0.0 --port 9001
 
@@ -35,8 +35,8 @@ services:
       - "10000:10000"
       - "20001:5678"    # debugpy port for VS Code debugging
     volumes:
-      - ./src/a2a_servers:/app/a2a_servers
-      - ./config:/app/config:ro
+      - ./backend/src/a2a_servers:/app/a2a_servers
+      - ./backend/config:/app/config:ro
     working_dir: /app
     restart: unless-stopped
 
@@ -68,8 +68,8 @@ services:
       - "10020:10020"
       - "20002:5678"    # debugpy port for VS Code debugging
     volumes:
-      - ./src/a2a_servers:/app/a2a_servers
-      - ./config:/app/config
+      - ./backend/src/a2a_servers:/app/a2a_servers
+      - ./backend/config:/app/config
     working_dir: /app
 
   communication-agent:
@@ -98,8 +98,8 @@ services:
     ports:
       - "20003:5678"    # debugpy port for VS Code debugging
     volumes:
-      - ./src/a2a_servers:/app/a2a_servers
-      - ./config:/app/config
+      - ./backend/src/a2a_servers:/app/a2a_servers
+      - ./backend/config:/app/config
     working_dir: /app
     restart: unless-stopped
 
@@ -128,8 +128,8 @@ services:
     ports:
       - "20004:5678"    # debugpy port for VS Code debugging
     volumes:
-      - ./src/a2a_servers:/app/a2a_servers
-      - ./config:/app/config
+      - ./backend/src/a2a_servers:/app/a2a_servers
+      - ./backend/config:/app/config
     working_dir: /app
     restart: unless-stopped
 
@@ -158,8 +158,8 @@ services:
     ports:
       - "20005:5678"    # debugpy port for VS Code debugging
     volumes:
-      - ./src/a2a_servers:/app/a2a_servers
-      - ./config:/app/config
+      - ./backend/src/a2a_servers:/app/a2a_servers
+      - ./backend/config:/app/config
     working_dir: /app
     restart: unless-stopped
 

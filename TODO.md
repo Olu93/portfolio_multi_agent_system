@@ -27,7 +27,7 @@
 ## Automated Refactorings
 
 ### Refactor environment MCP variables
-- Got into all ./src/mcp_servers/ files and replace the environment vars MCP_HOST & MCP_PORT to HOST and PORT
+- Got into all ./backend/src/mcp_servers/ files and replace the environment vars MCP_HOST & MCP_PORT to HOST and PORT
 - Apply the change to ./docker-compose.mcp.yml accordingly
 - Apply the change to ./.vscode/launch.json accordingly
 

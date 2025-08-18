@@ -18,7 +18,7 @@ services:
     ports:
       - "9000:6274"
     volumes:
-      - ./src/mcp_servers:/app/mcp_servers
+      - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
     command: npx @modelcontextprotocol/inspector
     restart: unless-stopped
@@ -32,7 +32,7 @@ services:
   #     - "9000:3001"
   #   volumes:
   #     - ./lingua_scraper:/app/lingua_scraper
-  #     - ./configs/sensitive/config.inspector.json:/app/config.inspector.json
+  #     - ./backend/configs/sensitive/config.inspector.json:/app/config.inspector.json
   #   restart: unless-stopped
   #   networks:
   #     - ${NETWORK_NAME}
@@ -55,7 +55,7 @@ services:
     ports:
       - "20006:5678"    # debugpy port for VS Code debugging
     volumes:
-      - ./src/mcp_servers:/app/mcp_servers
+      - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
     restart: unless-stopped
 
@@ -77,7 +77,7 @@ services:
     ports:
       - "20007:5678"    # debugpy port for VS Code debugging
     volumes:
-      - ./src/mcp_servers:/app/mcp_servers
+      - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
     restart: unless-stopped
     
@@ -105,7 +105,7 @@ services:
     ports:
       - "20008:5678"    # debugpy port for VS Code debugging
     volumes:
-      - ./src/mcp_servers:/app/mcp_servers
+      - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
     restart: unless-stopped
 
@@ -128,7 +128,7 @@ services:
     ports:
       - "20009:5678"    # debugpy port for VS Code debugging
     volumes:
-      - ./src/mcp_servers:/app/mcp_servers
+      - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
     # command: python serper-official.py
     restart: unless-stopped
@@ -151,7 +151,7 @@ services:
     ports:
       - "20010:5678"    # debugpy port for VS Code debugging
     volumes:
-      - ./src/mcp_servers:/app/mcp_servers
+      - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
     restart: unless-stopped
 
@@ -166,7 +166,7 @@ services:
   #     - PLAYWRIGHT_BROWSER_WS_ENDPOINT=${PLAYWRIGHT_BROWSER_WS_ENDPOINT:-ws://host.docker.internal:9222}
   #     - PYTHONPATH=/app
   #   volumes:
-  #     - ./src/mcp_servers:/app/mcp_servers
+  #     - ./backend/src/mcp_servers:/app/mcp_servers
   #     - ./screenshots:/app/screenshots
   #   working_dir: /app/mcp_servers
   #   command: python playwright_extension.py
@@ -194,7 +194,7 @@ services:
     ports:
       - "20011:5678"    # debugpy port for VS Code debugging
     volumes:
-      - ./src/mcp_servers:/app/mcp_servers
+      - ./backend/src/mcp_servers:/app/mcp_servers
       - ./files:/app/files
     working_dir: /app/mcp_servers
     restart: unless-stopped
@@ -212,7 +212,7 @@ services:
   #     - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
   #     - PYTHONPATH=/app
   #   volumes:
-  #     - ./src/mcp_servers:/app/mcp_servers
+  #     - ./backend/src/mcp_servers:/app/mcp_servers
   #   working_dir: /app/mcp_servers
   #   command: python kafka.py
   #   restart: unless-stopped
