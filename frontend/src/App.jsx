@@ -95,7 +95,7 @@ function App() {
       <div className="chat-container">
         <MainContainer responsive>
           <ChatContainer>
-            <ConversationHeader>
+            {/* <ConversationHeader>
               <ConversationHeader.Content>
                 <div className="conversation-header-content">
                   <div className="agent-avatar-large">🤖</div>
@@ -105,7 +105,7 @@ function App() {
                   </div>
                 </div>
               </ConversationHeader.Content>
-            </ConversationHeader>
+            </ConversationHeader> */}
 
             <MessageList
               ref={messageListRef}
