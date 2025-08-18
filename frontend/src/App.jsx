@@ -1,16 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  MainContainer,
-  ChatContainer,
-  MessageList,
-  Message,
-  MessageInput,
-  TypingIndicator,
-  ConversationHeader,
-  MessageSeparator,
-} from '@chatscope/chat-ui-kit-react';
-import '@chatscope/chat-ui-kit-styles/dist/default/styles.min.css';
-import './App.css';
+// import {
+//   MainContainer,
+//   ChatContainer,
+//   MessageList,
+//   Message,
+//   MessageInput,
+//   TypingIndicator,
+//   ConversationHeader,
+//   MessageSeparator,
+// } from '@chatscope/chat-ui-kit-react';
+// import '@chatscope/chat-ui-kit-styles/dist/default/styles.min.css';
+// import './App.css';
+import Copilot from './pages/Copilot.jsx';
 
 // Mock data for supervisor agent only
 const mockConversations = [
@@ -86,67 +87,7 @@ function App() {
   }, [conversations]);
 
   return (
-    <div className="app-container">
-      <div className="header">
-        <h1>🤖 Supervisor Agent Chat</h1>
-        <p>Coordinate with specialized AI agents for complex tasks</p>
-      </div>
-
-      <div className="chat-container">
-        <MainContainer responsive>
-          <ChatContainer>
-            {/* <ConversationHeader>
-              <ConversationHeader.Content>
-                <div className="conversation-header-content">
-                  <div className="agent-avatar-large">🤖</div>
-                  <div>
-                    <h3>Supervisor Agent</h3>
-                    <p>Orchestrates and coordinates other specialized agents</p>
-                  </div>
-                </div>
-              </ConversationHeader.Content>
-            </ConversationHeader> */}
-
-            <MessageList
-              ref={messageListRef}
-              typingIndicator={isTyping ? <TypingIndicator content="Supervisor is analyzing..." /> : null}
-              style={{
-                minHeight: '500px'
-              }}
-            >
-              {conversations.map((msg, index) => (
-                <React.Fragment key={msg.id}>
-                  {index > 0 && (
-                    <MessageSeparator content={formatTimestamp(msg.timestamp)} />
-                  )}
-                  <Message
-                    model={{
-                      message: msg.message,
-                      sentTime: formatTimestamp(msg.timestamp),
-                      sender: msg.sender === 'user' ? 'user' : 'supervisor',
-                      direction: msg.direction,
-                      position: 'single'
-                    }}
-                  />
-                </React.Fragment>
-              ))}
-            </MessageList>
-
-            <MessageInput
-              placeholder="Describe your task and I'll coordinate with the right agents..."
-              value={messageInputValue}
-              onChange={(val) => setMessageInputValue(val)}
-              onSend={handleSendMessage}
-              attachButton={false}
-            />
-          </ChatContainer>
-        </MainContainer>
-      </div>
-
-      <div className="footer">
-        <p>This is a mock interface. In production, this will connect to your A2A supervisor agent system.</p>
-      </div>
-    </div>
+    <Copilot />
   );
 }
 
