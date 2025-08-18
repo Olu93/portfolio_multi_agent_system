@@ -338,12 +338,12 @@ const ChatUI = () => {
               placeholder="Type a message"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleMessageSend()}
+              onKeyDown={(e) => e.key === "Enter" && handleMessageSend2()}
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">
                     <IconButton
-                      onClick={handleMessageSend}
+                      onClick={handleMessageSend2}
                       sx={{ color: "#ffffff" }}
                     >
                       <SendIcon />
