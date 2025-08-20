@@ -40,6 +40,31 @@ services:
     working_dir: /app
     restart: unless-stopped
 
+  agent-serve:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "a2a"
+        IS_PROD: ${IS_PROD}
+        CMD_MODULE: "serve.run"
+        CMD_ARGS: ""
+    container_name: ohcm_agent_serve
+    environment:
+      - PYTHONPATH=/app
+      - HOST=0.0.0.0
+      - PORT=9002
+      - A2A_AGENT_URL=http://ohcm_supervisor_agent:10020
+    ports:
+      - "9002:9002"
+      - "22222:5678"    # debugpy port for VS Code debugging
+    volumes:
+      - ./backend/src/serve:/app/serve
+    working_dir: /app
+    restart: unless-stopped
+    command: uvicorn serve.run:create_app --factory --host 0.0.0.0 --port 9002
+
+
   supervisor-agent:
     build:
       context: .

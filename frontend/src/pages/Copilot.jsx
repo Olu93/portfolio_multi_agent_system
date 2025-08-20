@@ -25,9 +25,6 @@ import MenuIcon from "@mui/icons-material/Menu";
 import axios from "axios";
 import Markdown from "react-markdown";
 import { ChatInterfaceBanner } from "../components/CombinedInterfaceBanners";
-import { A2AClient } from "@a2a-js/sdk/client";
-import { v4 as uuidv4 } from "uuid";
-import { SUPERVISOR_URL } from "../constants.jsx";
 
 const StyledContainer = styled(Box)(({ theme }) => ({
   display: "flex",
@@ -159,125 +156,7 @@ const ChatUI = () => {
 
 
   const handleMessageSend2 = async () => {
-    if (message.trim()) {
-      const userMessage = {
-        id: messages.length + 1,
-        text: message,
-        isOwn: true,
-        timestamp: new Date().toLocaleTimeString(),
-      };
-      setMessages([...messages, userMessage]);
-      setMessage("");
-
-      try {
-        // Initialize A2A client
-        const client = new A2AClient(SUPERVISOR_URL); // Replace with your server URL
-        const messageId = uuidv4();
-        let taskId;
-
-        // 1. Send a message to the agent
-        const sendParams = {
-          message: {
-            messageId: messageId,
-            role: "user",
-            parts: [{ kind: "text", text: message }],
-            kind: "message",
-          },
-          configuration: {
-            blocking: true,
-            acceptedOutputModes: ["text/plain"],
-          },
-        };
-
-        const sendResponse = await client.sendMessage(sendParams);
-
-        if (sendResponse.error) {
-          console.error("Error sending message:", sendResponse.error);
-          // Add error message to chat
-          setMessages((prevMessages) => [
-            ...prevMessages,
-            {
-              id: prevMessages.length + 2,
-              text: "Error sending message to A2A server.",
-              isOwn: false,
-              timestamp: new Date().toLocaleTimeString(),
-            },
-          ]);
-          return;
-        }
-
-        // On success, check if result is a Task or a Message
-        const result = sendResponse.result;
-
-        if (result.kind === "task") {
-          // The agent created a task
-          console.log("Send Message Result (Task):", result);
-          taskId = result.id; // Save the task ID for the next call
-        } else if (result.kind === "message") {
-          // The agent responded with a direct message
-          console.log("Send Message Result (Direct Message):", result);
-          // Add the AI response to chat
-          setMessages((prevMessages) => [
-            ...prevMessages,
-            {
-              id: prevMessages.length + 2,
-              text: result.parts[0]?.text || "AI response received",
-              isOwn: false,
-              timestamp: new Date().toLocaleTimeString(),
-            },
-          ]);
-        }
-
-        // 2. If a task was created, get its status
-        if (taskId) {
-          const getParams = { id: taskId };
-          const getResponse = await client.getTask(getParams);
-
-          if (getResponse.error) {
-            console.error(`Error getting task ${taskId}:`, getResponse.error);
-            // Add error message to chat
-            setMessages((prevMessages) => [
-              ...prevMessages,
-              {
-                id: prevMessages.length + 2,
-                text: `Error getting task status: ${getResponse.error.message}`,
-                isOwn: false,
-                timestamp: new Date().toLocaleTimeString(),
-              },
-            ]);
-            return;
-          }
-
-          const getTaskResult = getResponse.result;
-          console.log("Get Task Result:", getTaskResult);
-          
-          // Add the task result to chat
-          if (getTaskResult.status === "completed" && getTaskResult.output) {
-            setMessages((prevMessages) => [
-              ...prevMessages,
-              {
-                id: prevMessages.length + 2,
-                text: getTaskResult.output[0]?.text || "Task completed",
-                isOwn: false,
-                timestamp: new Date().toLocaleTimeString(),
-              },
-            ]);
-          }
-        }
-      } catch (error) {
-        console.error("A2A Client Communication Error:", error);
-        // Handle error by adding error message to chat
-        setMessages((prevMessages) => [
-          ...prevMessages,
-          {
-            id: prevMessages.length + 2,
-            text: `Communication error: ${error.message}`,
-            isOwn: false,
-            timestamp: new Date().toLocaleTimeString(),
-          },
-        ]);
-      }
-    }
+    // Function placeholder for future implementation
   };
 
   return (
@@ -346,13 +225,6 @@ const ChatUI = () => {
                     <IconButton
                       onClick={handleMessageSend2}
                       sx={{ color: "#ffffff" }}
-                    >
-                      <SendIcon />
-                    </IconButton>
-                    <IconButton
-                      onClick={handleMessageSend2}
-                      sx={{ color: "#0d47a1", marginLeft: 1 }}
-                      title="Send via A2A Server"
                     >
                       <SendIcon />
                     </IconButton>

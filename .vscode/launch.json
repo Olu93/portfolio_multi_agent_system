@@ -11,7 +11,23 @@
             "url": "http://localhost:5173",
             "webRoot": "${workspaceFolder}/frontend"
         },
-
+        {
+            "name": "FastAPI: A2A Chat Service",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "cwd": "${workspaceFolder}/backend/src",
+            "args": [
+                "serve.run:create_app",
+                "--factory",
+                "--reload",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "9002"
+            ],
+            "justMyCode": false,
+        },
         {
             "name": "Agent: Web Search",
             "type": "debugpy",
@@ -83,7 +99,7 @@
             ],
             "justMyCode": false,
         },
-        
+
     ],
     "inputs": [
         {

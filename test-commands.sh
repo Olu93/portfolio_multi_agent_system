@@ -1,1 +1,2 @@
 a2a send http://localhost:10020 "What is apple's current stock price? Also research the latest stock related news for apple. Send an email to o.hundogan@ohcm.nl with the contents. Please also create a calendar event in 2 hours for 1 hourin which o.hundogan is an attendee and the topic will be the content of your research. Call the event 'Finance Discussion'. We will be discussing the latest stock related news for apple. The event will be online."
+a2a send http://localhost:10020 "What is apple's current stock price?"
