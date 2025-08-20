@@ -27,8 +27,10 @@ from a2a_servers.config_loader import (
     load_model_config,
     load_prompt_config,
 )
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_core.tools import tool
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from langchain_core.tools.structured import StructuredTool
 from langchain.chat_models import init_chat_model
@@ -170,7 +172,7 @@ async def build_supervisor_graph(agent_name=None):
     tools = await build_tools_from_registry(allow_urls, allow_caps)
 
     logger.info("Creating react agent with tools and prompt")
-    return create_react_agent(model, tools, prompt=prompt, name=agent_name)
+    return create_react_agent(model, tools, prompt=prompt, name=agent_name, checkpointer=InMemorySaver())
 
 
 # --- Public API ---------------------------------------------------------------
@@ -197,10 +199,12 @@ class Supervisor(A2AServer):
             url=self.agent_cfg["agent_url"],
             capabilities=capabilities,
             skills=skills,
+            default_output_modes=["application/json"],
+            # output_modes=["application/json", "text/plain"],
         )
         super().__init__(agent_card=agent_card)
 
-        self.graph = None
+        self.graph: CompiledStateGraph = None
 
         self._lock = asyncio.Lock()
         self._last_refresh = 0
@@ -326,7 +330,8 @@ class Supervisor(A2AServer):
         inputs = {"messages": [("user", content)], "context": context or {}}
         logger.debug("Invoking supervisor graph")
 
-        result = await self.graph.ainvoke(inputs)
+        config = {"configurable": {"thread_id": context.get("task_id", uuid.uuid4())}}
+        result = await self.graph.ainvoke(inputs, config=config)
         logger.debug(f"Graph invocation completed, result keys: {list(result.keys())}")
 
         msgs = result.get("messages", [])

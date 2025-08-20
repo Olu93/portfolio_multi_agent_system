@@ -1,6 +1,8 @@
 name: "Supervisor-Agent"
 description: "An agent that can supervise the other agents"
 agent_url: "http://ohcm_supervisor_agent:10020"
+capabilities:
+  google_a2a_compatible: True
 skills:
   - name: "Orchestrate Agents"
     description: "Orchestrate the other agents"

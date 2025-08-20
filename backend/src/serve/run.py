@@ -1,3 +1,4 @@
+import json
 import os
 import asyncio
 from typing import Optional
@@ -36,7 +37,7 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = Field(None, example="1234567890")
 
 class ChatResponse(BaseModel):
-    response: str
+    response: dict|str
     conversation_id: str
     status: str
     error: Optional[str] = None
@@ -89,14 +90,14 @@ def create_app() -> FastAPI:
 
         if getattr(resp, "error", None):
             err = f"Error from A2A agent: {resp.error}"
-            return ChatResponse(response="", conversation_id=conversation_id, status="error", error=err)
+            return ChatResponse(response={"error": err}, conversation_id=conversation_id, status="error")
 
         if hasattr(resp, "content") and resp.content:
-            response_text = getattr(resp.content, "text", resp.content)
+            response_text = json.loads(getattr(resp.content, "text", resp.content))
         else:
-            response_text = "Response received from agent"
+            response_text = {"error": "No response from agent"}
 
-        return ChatResponse(response=str(response_text), conversation_id=conversation_id, status="success")
+        return ChatResponse(response=response_text, conversation_id=conversation_id, status="success")
 
     @app.get("/conversations/{conversation_id}")
     async def get_conversation(conversation_id: str):
