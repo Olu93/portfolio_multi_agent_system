@@ -34,6 +34,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.types import Command, interrupt
 
+from a2a_servers.a2a_client import A2ASubAgentClient
 from a2a_servers.config_loader import (
     load_agent_config,
     load_model_config,
@@ -46,12 +47,17 @@ from langgraph.prebuilt import create_react_agent
 from langchain_core.tools.structured import StructuredTool
 from pydantic import BaseModel, Field
 from typing import Literal
+from langgraph.config import get_stream_writer
 
 logger = logging.getLogger(__name__)
 
 # Initialize memory saver for LangGraph
 memory = InMemorySaver()
-
+class State(TypedDict):
+    # Messages have the type "list". The `add_messages` function
+    # in the annotation defines how this state key should be updated
+    # (in this case, it appends messages to the list, rather than overwriting them)
+    messages: Annotated[list, add_messages]   
 # --- Pydantic Models ---------------------------------------------------------
 
 class ChunkResponse(BaseModel):
@@ -120,10 +126,11 @@ async def build_tools_from_registry(
     def _create_tool_for_card(card: AgentCard) -> StructuredTool:
         """Create a tool function for a specific agent card"""
 
-        async def tool_impl(content: str, context: Dict[str, Any] = {}):
+        async def tool_impl(content: str, context_id: str, task_id: str, state: State):
             """
             content: str - the content of the message to send to the agent
-            context: Dict[str, Any] - the context of the message
+            context_id: str - the context of the message
+            task_id: str - the task of the message
 
             The context is a dictionary of key-value pairs that are passed to the agent.
             It is used to pass information to the agent, such as the task_id, message_id, session_id, conversation_id, and other metadata.
@@ -136,9 +143,15 @@ async def build_tools_from_registry(
 
             # For now, return a placeholder response
             # TODO: Implement proper A2A client communication
-            response_text = f"Tool {card.name} would process: {content[:100]}... (URL: {card.url})"
-            logger.info(f"Tool {card.name} returned response: {response_text}")
-            return response_text
+            client = A2ASubAgentClient()
+
+            response = await client.async_send_message_streaming(card.url, content, context_id, task_id)
+            writer = get_stream_writer()
+            async for chunk in response:
+                logger.info(f"Tool {card.name} returned response: {chunk}")
+                writer(chunk)
+            return chunk
+
 
         tool_name = _safe_name(card.name) or _safe_name(card.url)
         capabilities = list(card.capabilities.model_dump(mode="python").items())
@@ -199,11 +212,7 @@ class SupervisorAgent:
         # )
 
     def build_graph(self):
-        class State(TypedDict):
-            # Messages have the type "list". The `add_messages` function
-            # in the annotation defines how this state key should be updated
-            # (in this case, it appends messages to the list, rather than overwriting them)
-            messages: Annotated[list, add_messages]        
+     
 
         def model_execution(state: State) -> State:
             message:BaseMessage = self.model.invoke(state["messages"])
@@ -244,9 +253,9 @@ class SupervisorAgent:
 
 
 
-    async def stream(self, query, context_id) -> AsyncIterable[ChunkResponse]:
+    async def stream(self, query, context_id: str, task_id: str) -> AsyncIterable[ChunkResponse]:
         inputs = {'messages': [('user', query)]}
-        config = {'configurable': {'thread_id': context_id}}
+        config = {'configurable': {'thread_id': context_id, 'task_id': task_id, "stream_id": uuid.uuid4()}}
 
         async for item in self.graph.astream(inputs, config, stream_mode='values'):
             message = item['messages'][-1]
@@ -329,10 +338,9 @@ class BaseAgentExecutor(AgentExecutor):
         task = context.current_task or new_task(context.message)
         await event_queue.enqueue_event(task)
 
-        updater = TaskUpdater(event_queue, task.id, task.context_id)
-        config = {'configurable': {'thread_id': task.context_id}}
+        updater = TaskUpdater(event_queue, context_id=task.context_id, task_id=task.id)
         try:
-            async for item in self.agent.stream(query, task.context_id):
+            async for item in self.agent.stream(query, context_id=task.context_id, task_id=task.id):
                 # item is now a ChunkResponse model
                 is_task_complete = item.is_task_complete
                 require_user_input = item.require_user_input
