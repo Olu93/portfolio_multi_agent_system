@@ -6,7 +6,7 @@ import os
 import re
 import time
 import uuid
-from typing import Any, Dict, Optional, List, Callable, AsyncIterable
+from typing import Annotated, Any, Dict, Optional, List, Callable, AsyncIterable, TypedDict
 
 import click
 import httpx
@@ -25,9 +25,14 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
 from a2a.server.apps import A2AStarletteApplication
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage, BaseMessage
 import uvicorn
 from langchain.chat_models import init_chat_model
+from langgraph.graph.message import add_messages
+from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode, tools_condition
+from langchain_core.language_models.chat_models import BaseChatModel
+from langgraph.types import Command, interrupt
 
 from a2a_servers.config_loader import (
     load_agent_config,
@@ -39,11 +44,42 @@ from langchain_core.tools import tool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from langchain_core.tools.structured import StructuredTool
+from pydantic import BaseModel, Field
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
 # Initialize memory saver for LangGraph
 memory = InMemorySaver()
+
+# --- Pydantic Models ---------------------------------------------------------
+
+class ChunkResponse(BaseModel):
+    """Response structure for each chunk in the agent stream."""
+    
+    is_task_complete: bool = Field(
+        default=False,
+        description="Whether the task has been completed"
+    )
+    require_user_input: bool = Field(
+        default=False,
+        description="Whether the agent requires additional user input to proceed"
+    )
+    content: str = Field(
+        description="The content/message for this chunk"
+    )
+    step_number: Optional[int] = Field(
+        default=None,
+        description="The step number in the execution sequence"
+    )
+    tool_name: Optional[str] = Field(
+        default=None,
+        description="Name of the tool being executed (if applicable)"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Additional metadata for this chunk"
+    )
 
 # --- Config helper -----------------------------------------------------------
 
@@ -61,6 +97,12 @@ async def fetch_agents() -> List[AgentCard]:
         logger.info(f"Discovered {len(agents)} agents from registry")
         return agents
 
+
+@tool
+async def human_assistance(query: str) -> str:
+    """Request assistance from a human."""
+    human_response = interrupt(f"Human assistance requested: {query}")
+    return human_response["data"]
 
 # --- Tool factory from AgentCards -------------------------------------------
 
@@ -99,7 +141,8 @@ async def build_tools_from_registry(
             return response_text
 
         tool_name = _safe_name(card.name) or _safe_name(card.url)
-        desc_caps = ", ".join(sorted((card.capabilities or {}).keys()))
+        capabilities = list(card.capabilities.model_dump(mode="python").items())
+        desc_caps = ", ".join([f"{k} = {v}" for k,v in sorted(capabilities, key=lambda x: x[0])])
         summary = (
             f"{card.description or 'A2A agent'}. Caps: {desc_caps or 'unspecified'}"
         )
@@ -134,41 +177,6 @@ async def build_tools_from_registry(
     return tools
 
 
-# --- LangGraph supervisor agent ----------------------------------------------
-
-
-async def build_supervisor_graph(agent_name=None):
-    logger.info("Building supervisor graph")
-
-    # Load configuration directly
-    logger.debug(f"Loading configuration for supervisor agent: {agent_name}")
-    agent_cfg = load_agent_config(agent_name)
-    logger.debug(f"Agent config loaded: {agent_cfg}")
-
-    model_cfg = load_model_config(agent_cfg.get("model", "default"))
-    logger.debug(f"Model config loaded: {model_cfg}")
-
-    prompt = load_prompt_config(agent_cfg.get("prompt_file", "supervisor_agent.txt"))
-    logger.debug(f"Prompt loaded, length: {len(prompt)} characters")
-
-    # optional routing limits
-    allow_urls = set(agent_cfg.get("allow_urls", []) or [])
-    allow_caps = set(agent_cfg.get("allow_caps", []) or [])
-    logger.info(f"Routing limits: allow_urls={allow_urls}, allow_caps={allow_caps}")
-
-    logger.info(f"Initializing chat model: {model_cfg.get('name', 'unknown')}")
-    model = init_chat_model(
-        model_cfg["name"],
-        **model_cfg.get("parameters", {}),
-        model_provider=model_cfg.get("provider"),
-    )
-
-    logger.info("Building tools from registry")
-    tools = await build_tools_from_registry(allow_urls, allow_caps)
-
-    logger.info("Creating react agent with tools and prompt")
-    return create_react_agent(model, tools, prompt=prompt, name=agent_name, checkpointer=InMemorySaver())
-
 
 # --- Supervisor Agent Class -------------------------------------------------
 
@@ -176,21 +184,67 @@ async def build_supervisor_graph(agent_name=None):
 class SupervisorAgent:
     """Supervisor agent that orchestrates other agents using LangGraph."""
 
-    def __init__(self, name, model, tools, prompt):
+    def __init__(self, name, model: BaseChatModel, tools, prompt):
         self.name = name
-        self.model = model
         self.tools = tools
         self.prompt = prompt
+        self.model = model.bind_tools(self.tools)
+        self.graph = self.build_graph()
+        # self.graph = create_react_agent(
+        #     name=name,
+        #     model=self.model,
+        #     tools=self.tools,
+        #     checkpointer=memory,
+        #     prompt=prompt,
+        # )
 
-        self.graph = create_react_agent(
-            name=name,
-            model=self.model,
-            tools=self.tools,
-            checkpointer=memory,
-            prompt=prompt,
+    def build_graph(self):
+        class State(TypedDict):
+            # Messages have the type "list". The `add_messages` function
+            # in the annotation defines how this state key should be updated
+            # (in this case, it appends messages to the list, rather than overwriting them)
+            messages: Annotated[list, add_messages]        
+
+        def model_execution(state: State) -> State:
+            message:BaseMessage = self.model.invoke(state["messages"])
+            assert len(message.tool_calls) <= 1
+            return {"messages": [message]}
+
+
+        
+       
+
+
+
+        graph_builder = StateGraph(State)
+        graph_builder.add_node("model", model_execution)
+        # for tool in self.tools:
+        #     graph_builder.add_node(tool.name, ToolNode(tool))
+        #     graph_builder.add_edge("model", tool.name)
+        #     graph_builder.add_edge(tool.name, "model")
+
+        graph_builder.add_node("tools", ToolNode(self.tools))
+        # graph_builder.add_edge("model", "tools")
+        # graph_builder.add_edge("tools", END)
+
+        graph_builder.add_conditional_edges(
+            "model",
+            tools_condition,
         )
 
-    async def stream(self, query, context_id) -> AsyncIterable[dict[str, Any]]:
+        graph_builder.add_edge("tools", "model")
+
+        graph_builder.add_edge(START, "model")
+        graph_builder.add_edge("model", END)
+        graph = graph_builder.compile(checkpointer=memory)
+
+        return graph
+
+        
+
+
+
+    async def stream(self, query, context_id) -> AsyncIterable[ChunkResponse]:
         inputs = {'messages': [('user', query)]}
         config = {'configurable': {'thread_id': context_id}}
 
@@ -201,21 +255,26 @@ class SupervisorAgent:
                 and message.tool_calls
                 and len(message.tool_calls) > 0
             ):
-                yield {
-                    'is_task_complete': False,
-                    'require_user_input': False,
-                    'content': 'Processing the request...',
-                }
+                yield ChunkResponse(
+                    is_task_complete=False,
+                    require_user_input=False,
+                    content='Processing the request...',
+                    step_number=len(item.get('messages', [])),
+                    tool_name=message.tool_calls[0].get('name') if message.tool_calls else None,
+                    metadata={'message_type': 'tool_call'}
+                )
             elif isinstance(message, ToolMessage):
-                yield {
-                    'is_task_complete': False,
-                    'require_user_input': False,
-                    'content': 'Executing the tool...',
-                }
+                yield ChunkResponse(
+                    is_task_complete=False,
+                    require_user_input=False,
+                    content='Executing the tool...',
+                    step_number=len(item.get('messages', [])),
+                    metadata={'message_type': 'tool_execution'}
+                )
 
         yield self.get_agent_response(config)
 
-    def get_agent_response(self, config):
+    def get_agent_response(self, config) -> ChunkResponse:
         current_state = self.graph.get_state(config)
         messages = current_state.values.get('messages', [])
         
@@ -223,20 +282,23 @@ class SupervisorAgent:
             final_message = messages[-1]
             response_text = final_message.content if hasattr(final_message, 'content') else str(final_message)
             
-            return {
-                'is_task_complete': True,
-                'require_user_input': False,
-                'content': response_text,
-            }
+            return ChunkResponse(
+                is_task_complete=True,
+                require_user_input=False,
+                content=response_text,
+                step_number=len(messages),
+                metadata={'message_type': 'final_response'}
+            )
 
-        return {
-            'is_task_complete': False,
-            'require_user_input': True,
-            'content': (
+        return ChunkResponse(
+            is_task_complete=False,
+            require_user_input=True,
+            content=(
                 'We are unable to process your request at the moment. '
                 'Please try again.'
             ),
-        }
+            metadata={'message_type': 'error', 'error': 'no_messages'}
+        )
 
 
 # --- Base Agent Executor ---------------------------------------------------
@@ -270,15 +332,16 @@ class BaseAgentExecutor(AgentExecutor):
         updater = TaskUpdater(event_queue, task.id, task.context_id)
         config = {'configurable': {'thread_id': task.context_id}}
         try:
-            async for item in self.agent.stream(query, config):
-                is_task_complete = item['is_task_complete']
-                require_user_input = item['require_user_input']
+            async for item in self.agent.stream(query, task.context_id):
+                # item is now a ChunkResponse model
+                is_task_complete = item.is_task_complete
+                require_user_input = item.require_user_input
 
                 if not is_task_complete and not require_user_input:
                     await updater.update_status(
                         TaskState.working,
                         new_agent_text_message(
-                            item['content'],
+                            item.content,
                             task.context_id,
                             task.id,
                         ),
@@ -287,7 +350,7 @@ class BaseAgentExecutor(AgentExecutor):
                     await updater.update_status(
                         TaskState.input_required,
                         new_agent_text_message(
-                            item['content'],
+                            item.content,
                             task.context_id,
                             task.id,
                         ),
@@ -296,7 +359,7 @@ class BaseAgentExecutor(AgentExecutor):
                     break
                 else:
                     await updater.add_artifact(
-                        [Part(root=TextPart(text=item['content']))],
+                        [Part(root=TextPart(text=item.content))],
                         name=self.artifact_name,
                     )
                     await updater.complete()
@@ -339,7 +402,7 @@ async def create_supervisor_agent(agent_name: str):
         # Build tools from registry
         allow_urls = set(agent_config.get("allow_urls", []) or [])
         allow_caps = set(agent_config.get("allow_caps", []) or [])
-        tools = await build_tools_from_registry(allow_urls, allow_caps)
+        tools = await build_tools_from_registry(allow_urls, allow_caps) + [human_assistance]
 
         # Initialize the model
         model = init_chat_model(
@@ -355,6 +418,7 @@ async def create_supervisor_agent(agent_name: str):
         # Create agent card
         skills = [
             AgentSkill(
+                id=skill.get("name", ""),
                 name=skill.get("name", ""),
                 description=skill.get("description", ""),
                 tags=skill.get("tags", []),
@@ -365,11 +429,13 @@ async def create_supervisor_agent(agent_name: str):
         description = agent_config.get("description", "")
         capabilities = agent_config.get("capabilities", {})
         agent_card = AgentCard(
+            version="1.0.0",
             name=agent_name,
             description=description,
             url=agent_config["agent_url"],
             capabilities=capabilities,
             skills=skills,
+            default_input_modes=["text/plain", "application/json"],
             default_output_modes=["application/json"],
         )
 

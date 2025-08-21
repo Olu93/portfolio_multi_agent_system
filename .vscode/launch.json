@@ -91,7 +91,7 @@
             "request": "attach",
             "connect": {
                 "host": "localhost",
-                "port": "${input:debugpyPort}"
+                "port": "20002"
             },
             "pathMappings": [
                 {

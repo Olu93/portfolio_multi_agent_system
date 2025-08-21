@@ -74,7 +74,7 @@ services:
         IS_PROD: ${IS_PROD}
         CMD_MODULE: "a2a_servers.supervisor"
         CMD_ARGS: "--agent-name supervisor_agent"
-        # DEBUG_PY_ARGS: "--wait-for-client"
+        DEBUG_PY_ARGS: "--wait-for-client"
         HOST: 0.0.0.0
         PORT: 10020
     container_name: ohcm_supervisor_agent
