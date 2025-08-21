@@ -105,7 +105,7 @@ class A2ASubAgentClient:
             )
             logger.info(f'A2AClient initialized. Connecting to {agent_url}')
 
-            payload = new_agent_text_message(message, context_id=context_id, task_id=task_id)
+            payload = new_agent_text_message(message, context_id=context_id)
             msg_params = MessageSendParams(message=payload)
             
             # request =  SendMessageRequest(

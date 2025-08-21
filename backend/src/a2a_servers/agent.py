@@ -32,6 +32,7 @@ from langchain.chat_models import init_chat_model
 from a2a_servers.config_loader import load_agent_config, load_model_config, load_prompt_config
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import InMemorySaver
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,46 @@ memory = InMemorySaver()
 # Global cache to track agent registration status
 # This prevents repeated registration attempts during the same agent session
 _registration_cache = {}
+
+# Cache expiration time (in seconds) - how long to trust cached registration status
+CACHE_EXPIRY_SECONDS = int(os.getenv("REGISTRATION_CACHE_EXPIRY", "300"))  # 5 minutes default
+
+def _is_cache_valid(cache_entry):
+    """Check if a cache entry is still valid based on timestamp."""
+    if isinstance(cache_entry, dict):
+        timestamp = cache_entry.get('timestamp', 0)
+        return (time.time() - timestamp) < CACHE_EXPIRY_SECONDS
+    return False
+
+def _get_cached_registration(cache_key):
+    """Get cached registration status if it's still valid."""
+    cache_entry = _registration_cache.get(cache_key)
+    if cache_entry and _is_cache_valid(cache_entry):
+        return cache_entry.get('registered', False)
+    return None  # Cache expired or doesn't exist
+
+def _set_cached_registration(cache_key, registered: bool):
+    """Set cached registration status with timestamp."""
+    _registration_cache[cache_key] = {
+        'registered': registered,
+        'timestamp': time.time()
+    }
+
+def _cleanup_expired_cache():
+    """Remove expired entries from the registration cache."""
+    current_time = time.time()
+    expired_keys = []
+    
+    for key, entry in _registration_cache.items():
+        if not _is_cache_valid(entry):
+            expired_keys.append(key)
+    
+    for key in expired_keys:
+        del _registration_cache[key]
+        logger.debug(f"Removed expired cache entry for {key}")
+    
+    if expired_keys:
+        logger.info(f"Cleaned up {len(expired_keys)} expired cache entries")
 
 
 class ResponseFormat(BaseModel):
@@ -318,6 +359,9 @@ async def periodic_registration_check(agent_card: AgentCard, interval_seconds: i
         try:
             await asyncio.sleep(interval_seconds)
             
+            # Clean up expired cache entries periodically
+            _cleanup_expired_cache()
+            
             # Run the registration check and heartbeat in a thread pool since requests is blocking
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, check_and_maintain_registration, agent_card)
@@ -370,15 +414,20 @@ def check_and_maintain_registration(agent_card: AgentCard):
         return
     
     cache_key = agent_card.url
-    cached_registration = _registration_cache.get(cache_key, False)
+    cached_registration = _get_cached_registration(cache_key)
     
     try:
-        # Step 1: Check if agent is already registered (skip if we know we're registered)
-        if not cached_registration:
-            is_registered = check_if_agent_registered(agent_card)
+        # Step 1: Always check if agent is actually registered (don't trust cache blindly)
+        # This ensures we detect when agents are removed from the registry
+        is_registered = check_if_agent_registered(agent_card)
+        
+        # Update cache based on actual registry status
+        if is_registered:
+            _set_cached_registration(cache_key, True)
+            logger.info(f"Agent {agent_card.name} confirmed as registered in registry")
         else:
-            is_registered = True
-            logger.info(f"Agent {agent_card.name} registration status cached as registered")
+            _set_cached_registration(cache_key, False)
+            logger.info(f"Agent {agent_card.name} not found in registry")
         
         if not is_registered:
             # Step 2: Attempt to register if not already registered
@@ -389,7 +438,7 @@ def check_and_maintain_registration(agent_card: AgentCard):
                     logger.info(f"Agent {agent_card.name} registered successfully")
                     is_registered = True
                     # Cache successful registration
-                    _registration_cache[cache_key] = True
+                    _set_cached_registration(cache_key, True)
                 else:
                     logger.error(f"Failed to register agent {agent_card.name}: {response.status_code}")
                     return  # Don't send heartbeat if registration failed
@@ -408,7 +457,7 @@ def check_and_maintain_registration(agent_card: AgentCard):
                     # If heartbeat fails, the agent might have been removed from registry
                     # Clear the cache to force a re-check next time
                     if response.status_code == 404:
-                        _registration_cache[cache_key] = False
+                        _set_cached_registration(cache_key, False)
                         logger.info(f"Agent {agent_card.name} appears to have been removed from registry, will re-register next cycle")
             except Exception as e:
                 logger.error(f"Error sending heartbeat for agent {agent_card.name}: {e}")

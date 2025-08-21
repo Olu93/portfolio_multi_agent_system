@@ -153,8 +153,12 @@ async def build_tools_from_registry(
             response = client.async_send_message_streaming(card.url, content, context_id, task_id)
             async for chunk in response:
                 logger.info(f"Tool {card.name} returned response: {chunk}")
-                writer(chunk)
-            return chunk
+                yield chunk
+                # if chunk["result"]["status"]["state"] == "submitted":
+                #     writer({"messages": [ToolMessage(content=chunk["result"]["history"][-1]["parts"][0]["text"])]})
+                # writer({"messages": [ToolMessage(content=chunk)]})
+            # return {"messages": [ToolMessage(content=chunk)]}
+            yield chunk
             # return response
 
 
@@ -221,7 +225,7 @@ class SupervisorAgent:
 
         def model_execution(state: State) -> State:
             # TODO: Need to send all messages
-            message:BaseMessage = self.model.invoke([state["messages"][-1]])
+            message:AIMessage = self.model.invoke(state["messages"])
             assert len(message.tool_calls) <= 1
             return {"messages": [message]}
 
@@ -263,7 +267,8 @@ class SupervisorAgent:
         inputs = {'messages': [('user', query)]}
         config = {'configurable': {'thread_id': context_id, 'task_id': task_id, "stream_id": uuid.uuid4()}}
 
-        async for item in self.graph.astream(inputs, config, stream_mode='values'):
+        async for item in self.graph.astream(inputs, config, stream_mode=['values', 'custom']):
+            item:dict = item[1]
             message = item['messages'][-1]
             if (
                 isinstance(message, AIMessage)
@@ -416,7 +421,7 @@ async def create_supervisor_agent(agent_name: str):
         # Build tools from registry
         allow_urls = set(agent_config.get("allow_urls", []) or [])
         allow_caps = set(agent_config.get("allow_caps", []) or [])
-        tools = await build_tools_from_registry(allow_urls, allow_caps) + [human_assistance]
+        tools = await build_tools_from_registry(allow_urls, allow_caps) #+ [human_assistance]
 
         # Initialize the model
         model = init_chat_model(

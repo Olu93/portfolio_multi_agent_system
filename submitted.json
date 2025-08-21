@@ -1,0 +1,27 @@
+{
+    "id": "33f8fd88-db18-48bd-bf07-64274211f52a",
+    "jsonrpc": "2.0",
+    "result": {
+        "contextId": "5485f42f-1407-4db4-866d-056c39e12207",
+        "history": [
+            {
+                "contextId": "5485f42f-1407-4db4-866d-056c39e12207",
+                "kind": "message",
+                "messageId": "a7949ecc-69bf-4766-aa8e-f5302c5fc6b5",
+                "parts": [
+                    {
+                        "kind": "text",
+                        "text": "current stock price of Apple Inc. (AAPL)"
+                    }
+                ],
+                "role": "agent",
+                "taskId": "08b56e8a-710f-40d4-a8a3-b844c24404ad"
+            }
+        ],
+        "id": "08b56e8a-710f-40d4-a8a3-b844c24404ad",
+        "kind": "task",
+        "status": {
+            "state": "submitted"
+        }
+    }
+}
