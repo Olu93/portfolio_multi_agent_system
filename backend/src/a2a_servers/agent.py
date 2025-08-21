@@ -52,6 +52,7 @@ class ResponseFormat(BaseModel):
 class Agent:
     """CurrencyAgent - a specialized assistant for currency convesions."""
 
+    SUPPORTED_CONTENT_TYPES = ["text", "text/plain", "text/event-stream", "application/json"]
 
     FORMAT_INSTRUCTION = (
         'Set response status to input_required if the user needs to provide more information to complete the request.'
@@ -206,14 +207,14 @@ class BaseAgentExecutor(AgentExecutor):
 
             await updater.update_status(
                 TaskState.failed,
-                new_agent_parts_message(all_parts, task.contextId, task.id),
+                new_agent_parts_message(all_parts, task.context_id, task.id),
                 final=True,
             )
         except Exception as e:
             logger.error(f"Error: {e!s}")
             await updater.update_status(
                 TaskState.failed,
-                new_agent_text_message(f"Error: {e!s}", task.contextId, task.id),
+                new_agent_text_message(f"Error: {e!s}", task.context_id, task.id),
                 final=True,
             )
 
@@ -237,7 +238,7 @@ async def create_sub_agent(agent_name: str):
     try:
 
 
-        capabilities = AgentCapabilities(streaming=False, pushNotifications=False)
+        capabilities = AgentCapabilities(streaming=True, pushNotifications=False)
         agent_config = load_agent_config(agent_name)
         tool_config = agent_config.get("tools", [])
         model_config = load_model_config(agent_config.get("model", "default"))	
@@ -264,8 +265,8 @@ async def create_sub_agent(agent_name: str):
             # url=f"http://{host}:{port}/",
             url=agent_config["agent_url"],
             version="1.0.0",
-            defaultInputModes=["text", "text/plain"],
-            defaultOutputModes=["text", "text/plain"],
+            defaultInputModes=Agent.SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=Agent.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=skills,
         )

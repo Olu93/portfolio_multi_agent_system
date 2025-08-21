@@ -33,6 +33,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.types import Command, interrupt
+from langchain_core.runnables import RunnableConfig
 
 from a2a_servers.a2a_client import A2ASubAgentClient
 from a2a_servers.config_loader import (
@@ -57,6 +58,7 @@ class State(TypedDict):
     # Messages have the type "list". The `add_messages` function
     # in the annotation defines how this state key should be updated
     # (in this case, it appends messages to the list, rather than overwriting them)
+
     messages: Annotated[list, add_messages]   
 # --- Pydantic Models ---------------------------------------------------------
 
@@ -107,6 +109,7 @@ async def fetch_agents() -> List[AgentCard]:
 @tool
 async def human_assistance(query: str) -> str:
     """Request assistance from a human."""
+    # TODO: Turn interrupt output into a json -> https://langchain-ai.github.io/langgraph/tutorials/get-started/5-customize-state/#2-update-the-state-inside-the-tool
     human_response = interrupt(f"Human assistance requested: {query}")
     return human_response["data"]
 
@@ -126,11 +129,10 @@ async def build_tools_from_registry(
     def _create_tool_for_card(card: AgentCard) -> StructuredTool:
         """Create a tool function for a specific agent card"""
 
-        async def tool_impl(content: str, context_id: str, task_id: str, state: State):
+        async def tool_impl(content: str, config: RunnableConfig):
             """
             content: str - the content of the message to send to the agent
-            context_id: str - the context of the message
-            task_id: str - the task of the message
+            config: RunnableConfig - the config of the message
 
             The context is a dictionary of key-value pairs that are passed to the agent.
             It is used to pass information to the agent, such as the task_id, message_id, session_id, conversation_id, and other metadata.
@@ -140,17 +142,20 @@ async def build_tools_from_registry(
             """
 
             logger.debug(f"Tool {card.name} called with content: {content[:100]}...")
-
+            cfg = config.get("configurable", {})
+            context_id = cfg.get("thread_id")
+            task_id = cfg.get("task_id")
             # For now, return a placeholder response
             # TODO: Implement proper A2A client communication
             client = A2ASubAgentClient()
 
-            response = await client.async_send_message_streaming(card.url, content, context_id, task_id)
             writer = get_stream_writer()
+            response = client.async_send_message_streaming(card.url, content, context_id, task_id)
             async for chunk in response:
                 logger.info(f"Tool {card.name} returned response: {chunk}")
                 writer(chunk)
             return chunk
+            # return response
 
 
         tool_name = _safe_name(card.name) or _safe_name(card.url)
@@ -215,7 +220,8 @@ class SupervisorAgent:
      
 
         def model_execution(state: State) -> State:
-            message:BaseMessage = self.model.invoke(state["messages"])
+            # TODO: Need to send all messages
+            message:BaseMessage = self.model.invoke([state["messages"][-1]])
             assert len(message.tool_calls) <= 1
             return {"messages": [message]}
 
@@ -245,7 +251,7 @@ class SupervisorAgent:
 
         graph_builder.add_edge(START, "model")
         graph_builder.add_edge("model", END)
-        graph = graph_builder.compile(checkpointer=memory)
+        graph = graph_builder.compile(checkpointer=memory, name=self.name)
 
         return graph
 
@@ -377,7 +383,7 @@ class BaseAgentExecutor(AgentExecutor):
             logger.error(f"Error: {e!s}")
             await updater.update_status(
                 TaskState.failed,
-                new_agent_text_message(f"Error: {e!s}", task.contextId, task.id),
+                new_agent_text_message(f"Error: {e!s}", task.context_id, task.id),
                 final=True,
             )
 

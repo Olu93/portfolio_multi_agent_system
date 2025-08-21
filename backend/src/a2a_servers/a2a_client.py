@@ -32,11 +32,6 @@ class A2ASubAgentClient:
     async def async_send_message_streaming(self, agent_url: str, message: str, context_id: str, task_id: str) -> str:
         """Send a message following the official A2A SDK pattern."""
 
-        resolver = A2ACardResolver(
-            agent_url=agent_url,
-            agent_card_path=AGENT_CARD_WELL_KNOWN_PATH,
-            extended_agent_card_path=EXTENDED_AGENT_CARD_PATH,
-        )
 
         # Configure httpx client with timeout
         timeout_config = httpx.Timeout(
@@ -48,6 +43,11 @@ class A2ASubAgentClient:
         )
 
         async with httpx.AsyncClient(timeout=timeout_config) as httpx_client:
+            resolver = A2ACardResolver(
+                httpx_client=httpx_client,
+                base_url=agent_url,
+                agent_card_path=AGENT_CARD_WELL_KNOWN_PATH,
+            )
             logger.info(
                 f'Attempting to fetch public agent card from: {agent_url}{AGENT_CARD_WELL_KNOWN_PATH}'
             )
@@ -100,27 +100,27 @@ class A2ASubAgentClient:
                     '\nPublic card does not indicate support for an extended card. Using public card.'
                 )                  
 
-        client = A2AClient(
-            httpx_client=httpx_client, agent_card=final_agent_card_to_use
-        )
-        logger.info(f'A2AClient initialized. Connecting to {agent_url}')
+            client = A2AClient(
+                httpx_client=httpx_client, agent_card=final_agent_card_to_use
+            )
+            logger.info(f'A2AClient initialized. Connecting to {agent_url}')
 
-        payload = new_agent_text_message(message, context_id=context_id, task_id=task_id)
-        msg_params = MessageSendParams(message=payload)
-        
-        # request =  SendMessageRequest(
-        #     id=str(uuid4()), params=msg_params
-        # )
+            payload = new_agent_text_message(message, context_id=context_id, task_id=task_id)
+            msg_params = MessageSendParams(message=payload)
+            
+            # request =  SendMessageRequest(
+            #     id=str(uuid4()), params=msg_params
+            # )
 
-        # response = await client.send_message(request)
-        # print(response.model_dump(mode='json', exclude_none=True))
+            # response = await client.send_message(request)
+            # print(response.model_dump(mode='json', exclude_none=True))
 
-        streaming_request = SendStreamingMessageRequest(
-            id=str(uuid4()), params=msg_params
-        )
+            streaming_request = SendStreamingMessageRequest(
+                id=str(uuid4()), params=msg_params
+            )
 
-        stream_response = client.send_message_streaming(streaming_request)
+            stream_response = client.send_message_streaming(streaming_request)
 
-        async for chunk in stream_response:
-            yield chunk.model_dump(mode='json', exclude_none=True)
+            async for chunk in stream_response:
+                yield chunk.model_dump(mode='json', exclude_none=True)
         

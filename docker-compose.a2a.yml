@@ -69,6 +69,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.base
+      # TODO: Add a depends on the agent-registry service with hearbeat check
+      # depends_on:
+      #   - agent-registry
       args:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
