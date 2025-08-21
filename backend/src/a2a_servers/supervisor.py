@@ -1,4 +1,4 @@
-# supervisor.py — LLM-routed supervisor using LangGraph + A2A Registry discovery (python-a2a)
+# supervisor.py — LLM-routed supervisor using LangGraph + A2A Registry discovery (a2a package)
 import asyncio
 import json
 import logging
@@ -6,37 +6,44 @@ import os
 import re
 import time
 import uuid
-from typing import Any, Dict, Optional, List, Callable
+from typing import Any, Dict, Optional, List, Callable, AsyncIterable
 
 import click
 import httpx
-from python_a2a import (
-    A2AClient,
+from a2a.types import (
+    AgentCapabilities,
     AgentCard,
-    A2AServer,
-    Task,
-    run_server,
-    TaskStatus,
-    TaskState,
     AgentSkill,
+    Part,
+    TaskState,
+    TextPart,
 )
-from python_a2a.models.message import Message, MessageRole
-from python_a2a.models.content import TextContent, ErrorContent
+from a2a.server.agent_execution import AgentExecutor, RequestContext
+from a2a.utils import new_agent_text_message, new_task, new_agent_parts_message
+from a2a.server.events import EventQueue
+from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
+from a2a.server.apps import A2AStarletteApplication
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.messages import AIMessage, ToolMessage
+import uvicorn
+from langchain.chat_models import init_chat_model
+
 from a2a_servers.config_loader import (
     load_agent_config,
     load_model_config,
     load_prompt_config,
 )
 from langgraph.checkpoint.memory import InMemorySaver
-
 from langchain_core.tools import tool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from langchain_core.tools.structured import StructuredTool
-from langchain.chat_models import init_chat_model
 
 logger = logging.getLogger(__name__)
 
+# Initialize memory saver for LangGraph
+memory = InMemorySaver()
 
 # --- Config helper -----------------------------------------------------------
 
@@ -65,7 +72,6 @@ async def build_tools_from_registry(
         f"Building tools from registry with allow_urls={allow_urls}, allow_caps={allow_caps}"
     )
 
-
     def _safe_name(s: str) -> str:
         return re.sub(r"[^a-zA-Z0-9_]+", "_", s).strip("_").lower()
 
@@ -84,24 +90,13 @@ async def build_tools_from_registry(
             The conversation_id is a unique identifier for the conversation. The conversation_id is used to identify the conversation in the A2A protocol.
             """
 
-            
             logger.debug(f"Tool {card.name} called with content: {content[:100]}...")
 
-            # Create a dedicated A2AClient for this specific agent
-            agent_client = A2AClient(endpoint_url=card.url, google_a2a_compatible=True)
-
-            try:
-                # Use the ask method for simple text queries
-                logger.info(f"Sending message to {card.url}")
-                response = agent_client.send_message(Message(content=TextContent(text=content), role=MessageRole.AGENT, metadata={**context}))
-                logger.info(f"Received response from {card.url}")
-                logger.debug(
-                    f"Tool {card.name} returned response: {str(response)[:200]}..."
-                )
-                return response
-            except Exception as e:
-                logger.error(f"Error calling agent {card.name} at {card.url}: {e}")
-                return f"Error communicating with agent {card.name}: {str(e)}"
+            # For now, return a placeholder response
+            # TODO: Implement proper A2A client communication
+            response_text = f"Tool {card.name} would process: {content[:100]}... (URL: {card.url})"
+            logger.info(f"Tool {card.name} returned response: {response_text}")
+            return response_text
 
         tool_name = _safe_name(card.name) or _safe_name(card.url)
         desc_caps = ", ".join(sorted((card.capabilities or {}).keys()))
@@ -175,13 +170,189 @@ async def build_supervisor_graph(agent_name=None):
     return create_react_agent(model, tools, prompt=prompt, name=agent_name, checkpointer=InMemorySaver())
 
 
-# --- Public API ---------------------------------------------------------------
-class Supervisor(A2AServer):
-    def __init__(self, agent_name=None, host=None, port=None):
-        # Set the URL for this supervisor agent
-        url = f"http://{host}:{port}"
-        self.agent_name = agent_name
-        self.agent_cfg = load_agent_config(agent_name)
+# --- Supervisor Agent Class -------------------------------------------------
+
+
+class SupervisorAgent:
+    """Supervisor agent that orchestrates other agents using LangGraph."""
+
+    def __init__(self, name, model, tools, prompt):
+        self.name = name
+        self.model = model
+        self.tools = tools
+        self.prompt = prompt
+
+        self.graph = create_react_agent(
+            name=name,
+            model=self.model,
+            tools=self.tools,
+            checkpointer=memory,
+            prompt=prompt,
+        )
+
+    async def stream(self, query, context_id) -> AsyncIterable[dict[str, Any]]:
+        inputs = {'messages': [('user', query)]}
+        config = {'configurable': {'thread_id': context_id}}
+
+        async for item in self.graph.astream(inputs, config, stream_mode='values'):
+            message = item['messages'][-1]
+            if (
+                isinstance(message, AIMessage)
+                and message.tool_calls
+                and len(message.tool_calls) > 0
+            ):
+                yield {
+                    'is_task_complete': False,
+                    'require_user_input': False,
+                    'content': 'Processing the request...',
+                }
+            elif isinstance(message, ToolMessage):
+                yield {
+                    'is_task_complete': False,
+                    'require_user_input': False,
+                    'content': 'Executing the tool...',
+                }
+
+        yield self.get_agent_response(config)
+
+    def get_agent_response(self, config):
+        current_state = self.graph.get_state(config)
+        messages = current_state.values.get('messages', [])
+        
+        if messages:
+            final_message = messages[-1]
+            response_text = final_message.content if hasattr(final_message, 'content') else str(final_message)
+            
+            return {
+                'is_task_complete': True,
+                'require_user_input': False,
+                'content': response_text,
+            }
+
+        return {
+            'is_task_complete': False,
+            'require_user_input': True,
+            'content': (
+                'We are unable to process your request at the moment. '
+                'Please try again.'
+            ),
+        }
+
+
+# --- Base Agent Executor ---------------------------------------------------
+
+
+class BaseAgentExecutor(AgentExecutor):
+    """Base AgentExecutor for LangGraph/LangChain agents."""
+
+    def __init__(
+        self,
+        agent: SupervisorAgent,
+        status_message: str = "Processing request...",
+        artifact_name: str = "response",
+    ):
+        """Initialize a generic LangGraph agent executor.
+
+        Args:
+            agent: The LangGraph agent instance that implements AgentInterface
+            status_message: Message to display while processing
+            artifact_name: Name for the response artifact
+        """
+        self.agent = agent
+        self.status_message = status_message
+        self.artifact_name = artifact_name
+
+    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        query = context.get_user_input()
+        task = context.current_task or new_task(context.message)
+        await event_queue.enqueue_event(task)
+
+        updater = TaskUpdater(event_queue, task.id, task.context_id)
+        config = {'configurable': {'thread_id': task.context_id}}
+        try:
+            async for item in self.agent.stream(query, config):
+                is_task_complete = item['is_task_complete']
+                require_user_input = item['require_user_input']
+
+                if not is_task_complete and not require_user_input:
+                    await updater.update_status(
+                        TaskState.working,
+                        new_agent_text_message(
+                            item['content'],
+                            task.context_id,
+                            task.id,
+                        ),
+                    )
+                elif require_user_input:
+                    await updater.update_status(
+                        TaskState.input_required,
+                        new_agent_text_message(
+                            item['content'],
+                            task.context_id,
+                            task.id,
+                        ),
+                        final=True,
+                    )
+                    break
+                else:
+                    await updater.add_artifact(
+                        [Part(root=TextPart(text=item['content']))],
+                        name=self.artifact_name,
+                    )
+                    await updater.complete()
+                    break
+
+        except Exception as e:
+            logger.error(f"Error: {e!s}")
+            await updater.update_status(
+                TaskState.failed,
+                new_agent_text_message(f"Error: {e!s}", task.contextId, task.id),
+                final=True,
+            )
+
+    async def execute_streaming(
+        self, context: RequestContext, event_queue: EventQueue
+    ) -> None:
+        """Execute with streaming - not supported by this agent."""
+        # Since streaming is disabled, we'll just call the regular execute method
+        # and let the framework handle the streaming response
+        await self.execute(context, event_queue)
+
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        # Implementation for cancelling tasks
+        pass
+
+
+# --- Agent Creation ---------------------------------------------------------
+
+
+async def create_supervisor_agent(agent_name: str):
+    """
+    Create a supervisor agent based on the agents.yml file.
+    """
+    try:
+        agent_config = load_agent_config(agent_name)
+        model_config = load_model_config(agent_config.get("model", "default"))
+        meta_prompt = agent_config.get("meta_prompt", "You are a helpful supervisor that can orchestrate multiple agents")
+        prompt_config = load_prompt_config(agent_config.get("prompt_file", f"{agent_name}.txt"))
+
+        # Build tools from registry
+        allow_urls = set(agent_config.get("allow_urls", []) or [])
+        allow_caps = set(agent_config.get("allow_caps", []) or [])
+        tools = await build_tools_from_registry(allow_urls, allow_caps)
+
+        # Initialize the model
+        model = init_chat_model(
+            model_config["name"], 
+            **model_config["parameters"], 
+            model_provider=model_config["provider"]
+        )
+
+        # Create the supervisor agent
+        prompt = f"{meta_prompt}\n\n{prompt_config}"
+        agent = SupervisorAgent(agent_name, model, tools, prompt)
+
+        # Create agent card
         skills = [
             AgentSkill(
                 name=skill.get("name", ""),
@@ -189,162 +360,36 @@ class Supervisor(A2AServer):
                 tags=skill.get("tags", []),
                 examples=skill.get("examples", []),
             )
-            for skill in self.agent_cfg.get("skills", [])
+            for skill in agent_config.get("skills", [])
         ]
-        description = self.agent_cfg.get("description", "")
-        capabilities = self.agent_cfg.get("capabilities", {})
+        description = agent_config.get("description", "")
+        capabilities = agent_config.get("capabilities", {})
         agent_card = AgentCard(
-            name=self.agent_name,
+            name=agent_name,
             description=description,
-            url=self.agent_cfg["agent_url"],
+            url=agent_config["agent_url"],
             capabilities=capabilities,
             skills=skills,
             default_output_modes=["application/json"],
-            # output_modes=["application/json", "text/plain"],
         )
-        super().__init__(agent_card=agent_card)
 
-        self.graph: CompiledStateGraph = None
-
-        self._lock = asyncio.Lock()
-        self._last_refresh = 0
-        self.host = host
-        self.port = port
-        logger.info(f"Supervisor A2A agent initialized at {url}")
-
-    def handle_task(self, task: Task):
-        """Handle incoming A2A tasks - this is the A2A protocol method."""
-        try:
-            # Extract content from task
-            message_data = task.message or {}
-            content = message_data.get("content", {})
-            text = content.get("text", "") if isinstance(content, dict) else ""
-
-            logger.info(f"Received A2A task: {text[:100]}...")
-
-            # Validate input
-            if not text.strip():
-                raise ValueError("Empty or whitespace-only message received")
-
-            # Use the LangGraph orchestration to process the task
-            result = asyncio.run(self.orchestrate(text, {
-                "task_id": task.id,
-                "session_id": task.session_id,
-                "message_id": message_data.get("message_id", ""),
-                "conversation_id": message_data.get("conversation_id", ""),
-                "metadata": task.metadata,
-                
-
-            }))
-
-            # Update task with the orchestration results
-            if result.get("ok"):
-                task.artifacts = [
-                    {"parts": [{"type": "text", "text": result["content"]}]}
-                ]
-                task.status = TaskStatus(state=TaskState.COMPLETED)
-            else:
-                task.status = TaskStatus(
-                    state=TaskState.FAILED, 
-                    message={"error": "Orchestration failed"}
-                )
-
-        except ValueError as e:
-            # Handle validation errors
-            logger.warning(f"Validation error in A2A task: {e}")
-            task.artifacts = [{
-                "parts": [{"type": "text", "text": f"Validation error: {str(e)}"}]
-            }]
-            task.status = TaskStatus(
-                state=TaskState.INPUT_REQUIRED,
-                message={"error": f"Input validation failed: {str(e)}"}
-            )
-
-        except asyncio.TimeoutError as e:
-            # Handle timeout errors
-            logger.error(f"Timeout error in A2A task orchestration: {e}")
-            task.artifacts = [{
-                "parts": [{"type": "text", "text": "Request timed out. Please try again."}]
-            }]
-            task.status = TaskStatus(
-                state=TaskState.FAILED,
-                message={"error": "Orchestration timeout"}
-            )
-
-        except ConnectionError as e:
-            # Handle connection errors
-            logger.error(f"Connection error in A2A task: {e}")
-            task.artifacts = [{
-                "parts": [{"type": "text", "text": f"Service unavailable: {str(e)}"}]
-            }]
-            task.status = TaskStatus(
-                state=TaskState.FAILED,
-                message={"error": f"Connection failed: {str(e)}"}
-            )
-
-        except Exception as e:
-            # Handle unexpected errors
-            import traceback
-            logger.error(f"Unexpected error handling A2A task: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            
-            task.artifacts = [{
-                "parts": [{"type": "text", "text": "An unexpected error occurred. Please try again or contact support."}]
-            }]
-            task.status = TaskStatus(
-                state=TaskState.FAILED,
-                message={"error": f"Unexpected error: {str(e)}"}
-            )
-
-        return task
-
-    def get_agent_card(self) -> AgentCard:
-        """Get the supervisor's agent card for discovery"""
-        return self.agent_card
-
-    async def _ensure_graph(self):
-        now = time.time()
-        if self.graph is None or (now - self._last_refresh) > REFRESH_SECS:
-            logger.debug("Graph needs refresh or initialization")
-            async with self._lock:
-                if (
-                    self.graph is None
-                    or (time.time() - self._last_refresh) > REFRESH_SECS
-                ):
-                    logger.info("Building new supervisor graph")
-                    self.graph = await build_supervisor_graph(self.agent_name)
-                    self._last_refresh = time.time()
-                    logger.info("Supervisor graph built and ready")
-                else:
-                    logger.debug("Graph was refreshed by another task")
-
-    async def orchestrate(
-        self, content: str, context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """Internal method for orchestrating agents via LangGraph."""
-        logger.info(f"Orchestrating with LangGraph: {content[:100]}...")
-        logger.debug(f"Task context: {context}")
-
-        await self._ensure_graph()
-
-        inputs = {"messages": [("user", content)], "context": context or {}}
-        logger.debug("Invoking supervisor graph")
-
-        config = {"configurable": {"thread_id": context.get("task_id", uuid.uuid4())}}
-        result = await self.graph.ainvoke(inputs, config=config)
-        logger.debug(f"Graph invocation completed, result keys: {list(result.keys())}")
-
-        msgs = result.get("messages", [])
-        final = msgs[-1].content if msgs else ""
-        logger.info(f"Task completed, final response length: {len(final)}")
-
-        return {"ok": True, "content": final, "raw": result}
-
-    def run_server(self):
-        """Run the supervisor as an A2A server"""
-        logger.info(f"Starting Supervisor A2A server on {self.host}:{self.port}")
-        # Use the imported run_server function from python_a2a
-        run_server(self, host=self.host, port=self.port)
+        # Create executor with custom parameters
+        executor = BaseAgentExecutor(
+            agent=agent,
+            status_message="Processing request...",
+            artifact_name="supervisor_response",
+        )
+        
+        request_handler = DefaultRequestHandler(  
+            agent_executor=executor,  
+            task_store=InMemoryTaskStore()  
+        ) 
+        
+        return A2AStarletteApplication(agent_card=agent_card, http_handler=request_handler)
+        
+    except Exception as e:
+        logger.error(f"Error creating supervisor agent {agent_name}: {e}")
+        raise e
 
 
 # --- CLI entrypoint -----------------------------------------------------------
@@ -361,13 +406,19 @@ def run_supervisor(agent_name: str):
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", 10020))
 
-    logger.info(f"Starting Supervisor agent '{agent_name}'")
-    sup = Supervisor(agent_name=agent_name, host=HOST, port=PORT)
-    asyncio.run(sup._ensure_graph())
-    logger.info("Supervisor is initialized and ready.")
-
-    # Run as A2A server
-    sup.run_server()
+    async def run_with_background_tasks():
+        app = await create_supervisor_agent(agent_name)
+        fastapi_app = app.build()
+        return fastapi_app
+    
+    # Run the async function and get the FastAPI app
+    fastapi_app = asyncio.run(run_with_background_tasks())
+    
+    uvicorn.run(
+        fastapi_app,
+        host=HOST,
+        port=PORT,
+    )
 
 
 if __name__ == "__main__":

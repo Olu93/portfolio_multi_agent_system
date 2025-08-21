@@ -152,6 +152,7 @@ services:
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}      
     ports:
       - "20004:5678"    # debugpy port for VS Code debugging
+      - "11111:10020" # debugpy port for VS Code debugging
     volumes:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config
