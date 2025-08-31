@@ -1,0 +1,14 @@
+{
+    "id": "d2830373-a38c-43ee-98cc-d9a7ae4c1ce5",
+    "jsonrpc": "2.0",
+    "result": {
+        "contextId": "74ea2f88-f84d-433a-9f37-499538d6f0ad",
+        "final": true,
+        "kind": "status-update",
+        "status": {
+            "state": "completed",
+            "timestamp": "2025-08-26T12:33:22.545349+00:00"
+        },
+        "taskId": "64312d82-e211-44b6-8a80-5d7a2b09a862"
+    }
+}

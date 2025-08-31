@@ -85,7 +85,6 @@ async def build_tools_from_registry(
 
     def _create_tool_for_card(card: AgentCard) -> StructuredTool:
         async def tool_impl(content: str, config: RunnableConfig):
-            # read infra IDs from config
             cfg = config.get("configurable", {}) if isinstance(config, dict) else {}
             context_id = cfg.get("thread_id")
             task_id = cfg.get("task_id")
@@ -93,21 +92,38 @@ async def build_tools_from_registry(
             client = A2ASubAgentClient()
             writer = get_stream_writer()
 
-            last_text: Optional[str] = None
-            async for chunk in client.async_send_message_streaming(
-                card.url, content, context_id, task_id
-            ):
-                # extract some text to stream (adapt to your payload)
+            buf: list[str] = []
+            async for chunk in client.async_send_message_streaming(card.url, content, context_id, task_id):
                 try:
-                    text = chunk["result"]["history"][-1]["parts"][0]["text"]
-                except Exception:
+                    result = chunk["result"]
+                    if result["kind"] == "artifact-update":
+                        artifact = result["artifact"]
+                        parts = artifact["parts"]
+                        text = "\n\n".join([f'{p["kind"]}: {p["text"]}' for p in parts])
+                    elif result["kind"] == "status-update":
+                        status = result["status"]
+                        state = status["state"]
+                        timestamp = status["timestamp"]
+                        text = f'{state} at {timestamp}'
+                    elif result["kind"] == "task":
+                        history = result["history"]
+                        last_element = history[-1]
+                        element_parts = last_element["parts"]
+                        first_part = "\n\n".join([f'{p["kind"]}: {p["text"]}' for p in element_parts])
+                        text = first_part
+                    else:
+                        text = json.dumps(chunk, ensure_ascii=False)
+                except Exception as e:
+                    logger.exception("Error processing tool output", e)
                     text = json.dumps(chunk, ensure_ascii=False)
-                last_text = text
-                # stream as custom event (no tool_call_id needed here)
-                writer({"tool": card.name, "text": text})
+                writer({"tool": card.name, "text": text})   # custom stream
+                buf.append(text)
 
-            # final value: ToolNode will wrap into ToolMessage with correct tool_call_id
-            return last_text or ""
+            # ToolNode will turn this into ToolMessage.content for the next model step
+            if not buf:
+                return ""
+            return "### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END"
+
 
         tool_name = _safe_name(card.name) or _safe_name(card.url)
         capabilities = list(card.capabilities.model_dump(mode="python").items()) if card.capabilities else []
@@ -146,7 +162,7 @@ class SupervisorAgent:
         def model_execution(state: State) -> State:
             # prepend system prompt if needed; here we assume messages already include it upstream
             message: AIMessage = self.model.invoke(state["messages"])
-            assert len(getattr(message, "tool_calls", []) or []) <= 1
+            # assert len(getattr(message, "tool_calls", []) or []) <= 1
             return {"messages": [message]}
 
         gb = StateGraph(State)
