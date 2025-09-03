@@ -1,4 +1,5 @@
 # supervisor.py — LLM-routed supervisor using LangGraph + A2A Registry discovery (a2a package)
+# ChatGPT convo: https://chatgpt.com/share/68b8361d-6b24-8009-ba31-aaaebdc96cc9
 import asyncio
 import json
 import logging
@@ -160,22 +161,23 @@ class SupervisorAgent:
 
     def build_graph(self):
         def model_execution(state: State) -> State:
-            # prepend system prompt if needed; here we assume messages already include it upstream
             message: AIMessage = self.model.invoke(state["messages"])
-            # assert len(getattr(message, "tool_calls", []) or []) <= 1
+            # force only one tool call per step
+            if message.tool_calls and len(message.tool_calls) > 1:
+                message.tool_calls = [message.tool_calls[0]]
             return {"messages": [message]}
 
         gb = StateGraph(State)
         gb.add_node("model", model_execution)
         gb.add_node("tools", ToolNode(self.tools))
 
+        gb.add_edge(START, "model")
+        # decide dynamically: tool call → tools, else → END
         gb.add_conditional_edges("model", tools_condition)
         gb.add_edge("tools", "model")
 
-        gb.add_edge(START, "model")
-        gb.add_edge("model", END)
-
         return gb.compile(checkpointer=memory, name=self.name)
+
 
     async def stream(self, query: str, context_id: str, task_id: str) -> AsyncIterable[ChunkResponse]:
         inputs = {"messages": [("user", query)]}
