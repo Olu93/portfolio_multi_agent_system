@@ -18,6 +18,7 @@ colorlog = "^6.9.0"
 langchain = "^0.3.27"
 fastapi = "^0.115.0"
 uvicorn = {extras = ["standard"], version = "^0.32.0"}
+httptools = "^0.6.4"
 
 
 [tool.poetry.group.a2a.dependencies]

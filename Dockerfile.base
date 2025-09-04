@@ -13,7 +13,7 @@ ARG POETRY_GROUPS="main"
 # Install build-time dependencies
 RUN apk add --no-cache \
     build-base libffi-dev openssl-dev \
-    curl wget git
+    curl wget git python3-dev
 
 # Install Poetry
 RUN pip install --no-cache-dir poetry
