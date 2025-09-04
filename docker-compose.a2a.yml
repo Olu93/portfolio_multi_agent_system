@@ -38,7 +38,12 @@ services:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config:ro
     working_dir: /app
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:10000/health'); print('ok')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   agent-serve:
     build:
@@ -61,17 +66,15 @@ services:
     volumes:
       - ./backend/src/serve:/app/serve
     working_dir: /app
-    restart: unless-stopped
     command: uvicorn serve.run:app --host 0.0.0.0 --port 9002
-
+    depends_on:
+      supervisor-agent:
+        condition: service_healthy
 
   supervisor-agent:
     build:
       context: .
       dockerfile: Dockerfile.base
-      # TODO: Add a depends on the agent-registry service with hearbeat check
-      # depends_on:
-      #   - agent-registry
       args:
         POETRY_GROUPS: "a2a"
         IS_PROD: ${IS_PROD}
@@ -82,12 +85,12 @@ services:
         PORT: 10020
     container_name: ohcm_supervisor_agent
     environment:
+      - URL=http://ohcm_supervisor_agent:10020
+      - REGISTRY_URL=${REGISTRY_URL}    
       - PYTHONPATH=/app
       - AGENT_NAME=supervisor_agent
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - REGISTRY_URL=http://ohcm_agent_registry:10000
-      - REGISTRY_URL=${REGISTRY_URL}
       - LANGSMITH_TRACING=${LANGSMITH_TRACING}
       - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
@@ -99,8 +102,15 @@ services:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config
     working_dir: /app
-    restart: unless-stopped
-
+    depends_on:
+      agent-registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:10020/health'); print('ok')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
 
   communication-agent:
     build:
@@ -114,12 +124,12 @@ services:
         # DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_communication_agent
     environment:
+      - URL=http://ohcm_communication_agent:10020
+      - REGISTRY_URL=${REGISTRY_URL}
       - PYTHONPATH=/app
       - AGENT_NAME=communication_agent
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - REGISTRY_URL=http://ohcm_agent_registry:10000
-      - REGISTRY_URL=${REGISTRY_URL}
       - LANGSMITH_TRACING=${LANGSMITH_TRACING}
       - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
@@ -131,7 +141,9 @@ services:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config
     working_dir: /app
-    restart: unless-stopped
+    depends_on:
+      agent-registry:
+        condition: service_healthy
 
   finance-agent:
     build:
@@ -145,12 +157,12 @@ services:
         # DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_finance_agent
     environment:
+      - URL=http://ohcm_finance_agent:10020
+      - REGISTRY_URL=${REGISTRY_URL}    
       - PYTHONPATH=/app
       - AGENT_NAME=finance_agent
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - REGISTRY_URL=http://ohcm_agent_registry:10000
-      - REGISTRY_URL=${REGISTRY_URL}
       - LANGSMITH_TRACING=${LANGSMITH_TRACING}
       - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
@@ -162,7 +174,9 @@ services:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config
     working_dir: /app
-    restart: unless-stopped
+    depends_on:
+      agent-registry:
+        condition: service_healthy
 
   web-search-agent:
     build:
@@ -176,12 +190,12 @@ services:
         # DEBUG_PY_ARGS: "--wait-for-client"
     container_name: ohcm_web_search_agent
     environment:
+      - URL=http://ohcm_web_search_agent:10020
+      - REGISTRY_URL=${REGISTRY_URL}    
       - PYTHONPATH=/app
       - AGENT_NAME=web_search_agent
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - REGISTRY_URL=http://ohcm_agent_registry:10000
-      - REGISTRY_URL=${REGISTRY_URL}
       - LANGSMITH_TRACING=${LANGSMITH_TRACING}
       - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
@@ -192,7 +206,9 @@ services:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config
     working_dir: /app
-    restart: unless-stopped
+    depends_on:
+      agent-registry:
+        condition: service_healthy
 
 networks:
   ${DOCKER_NETWORK}:

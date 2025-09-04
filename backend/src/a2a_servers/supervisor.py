@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+from urllib.parse import urlparse
 import uuid
 from typing import Annotated, Any, Dict, Optional, List, AsyncIterable, TypedDict
 
@@ -44,7 +45,12 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langchain_core.tools.structured import StructuredTool
 from pydantic import BaseModel, Field
 from langgraph.config import get_stream_writer
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.responses import JSONResponse
+from starlette.requests import Request
 import uvicorn
+
 
 logger = logging.getLogger(__name__)
 
@@ -300,7 +306,7 @@ class BaseAgentExecutor(AgentExecutor):
         pass
 
 # --- Factory -----------------------------------------------------------------
-async def create_supervisor_agent(agent_name: str):
+async def create_supervisor_agent(agent_name: str, url: str):
     agent_config = load_agent_config(agent_name)
     model_config = load_model_config(agent_config.get("model", "default"))
     meta_prompt = agent_config.get("meta_prompt", "You are a helpful supervisor that can orchestrate multiple agents")
@@ -336,7 +342,7 @@ async def create_supervisor_agent(agent_name: str):
         version="1.0.0",
         name=agent_name,
         description=description,
-        url=agent_config["agent_url"],
+        url=url,
         capabilities=capabilities,
         skills=skills,
         default_input_modes=SupervisorAgent.SUPPORTED_CONTENT_TYPES,
@@ -345,21 +351,39 @@ async def create_supervisor_agent(agent_name: str):
 
     executor = BaseAgentExecutor(agent=agent, status_message="Processing request...", artifact_name="supervisor_response")
     request_handler = DefaultRequestHandler(agent_executor=executor, task_store=InMemoryTaskStore())
-    return A2AStarletteApplication(agent_card=agent_card, http_handler=request_handler)
+    app = A2AStarletteApplication(agent_card=agent_card, http_handler=request_handler)
+    
+    # Add health endpoint
+    async def health_check(request: Request):
+        """Health check endpoint."""
+        logger.info("Health check endpoint called")
+        return JSONResponse({"status": "healthy"})
+
+    # starlette_app: Starlette = app.build(routes=[Route("/health", health_check, methods=["GET"])])
+    starlette_app: Starlette = app.build()
+    starlette_app.add_route("/health", health_check, methods=["GET"])
+
+    return starlette_app
 
 # --- CLI ---------------------------------------------------------------------
 @click.command()
 @click.option("--agent-name", default="supervisor", help="Name of the supervisor agent config to load")
 def run_supervisor(agent_name: str):
-    HOST = os.getenv("HOST", "0.0.0.0")
-    PORT = int(os.getenv("PORT", 10020))
+    URL = os.getenv("URL", "http://0.0.0.0:10020")
+    HOST = urlparse(URL).hostname
+    PORT = int(urlparse(URL).port)
+
+    logger.info(f"Access agent at: {URL}") 
+    logger.debug(f"HOST: {HOST}") 
+    logger.debug(f"PORT: {PORT}")
 
     async def run_with_background_tasks():
-        app = await create_supervisor_agent(agent_name)
-        return app.build()
+        app = await create_supervisor_agent(agent_name, url=URL)
+        return app
 
     fastapi_app = asyncio.run(run_with_background_tasks())
-    uvicorn.run(fastapi_app, host=HOST, port=PORT)
+
+    uvicorn.run(fastapi_app, host="0.0.0.0", port=PORT)
 
 if __name__ == "__main__":
     run_supervisor()

@@ -1,8 +1,10 @@
 import asyncio
+import contextlib
 import logging
 import os
 from typing import Any, AsyncIterable, Literal
 import click
+from fastapi import FastAPI
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 from langgraph.errors import GraphRecursionError
@@ -33,6 +35,8 @@ from a2a_servers.config_loader import load_agent_config, load_model_config, load
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import InMemorySaver
 import time
+from urllib.parse import urlparse
+
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +276,7 @@ class BaseAgentExecutor(AgentExecutor):
         pass
 
 
-async def create_sub_agent(agent_name: str):
+async def create_sub_agent(agent_name: str, url: str):
     """
     Create a sub agent for the main agent based on the agents.yml file in which all the agents are registered.
     """
@@ -303,8 +307,8 @@ async def create_sub_agent(agent_name: str):
         agent_card = AgentCard(
             name=agent_config["name"],
             description=agent_config["description"],
-            # url=f"http://{host}:{port}/",
-            url=agent_config["agent_url"],
+            url=url,
+            # url=agent_config["agent_url"],
             version="1.0.0",
             defaultInputModes=Agent.SUPPORTED_CONTENT_TYPES,
             defaultOutputModes=Agent.SUPPORTED_CONTENT_TYPES,
@@ -424,26 +428,26 @@ def check_and_maintain_registration(agent_card: AgentCard):
         # Update cache based on actual registry status
         if is_registered:
             _set_cached_registration(cache_key, True)
-            logger.info(f"Agent {agent_card.name} confirmed as registered in registry")
+            logger.info(f"Agent {agent_card.name} confirmed as registered in registry {REGISTRY_URL} with agent url {agent_card.url}")
         else:
             _set_cached_registration(cache_key, False)
-            logger.info(f"Agent {agent_card.name} not found in registry")
+            logger.info(f"Agent {agent_card.name} not found in registry {REGISTRY_URL} with agent url {agent_card.url}")
         
         if not is_registered:
             # Step 2: Attempt to register if not already registered
-            logger.info(f"Agent {agent_card.name} not found in registry, attempting registration...")
+            logger.info(f"Agent {agent_card.name} not found in registry {REGISTRY_URL} with agent url {agent_card.url}, attempting registration...")
             try:
                 response = requests.post(f"{REGISTRY_URL}/registry/register", json=agent_card.model_dump(mode='python'))
                 if response.status_code == 201:
-                    logger.info(f"Agent {agent_card.name} registered successfully")
+                    logger.info(f"Agent {agent_card.name} registered successfully in registry {REGISTRY_URL} with agent url {agent_card.url}")
                     is_registered = True
                     # Cache successful registration
                     _set_cached_registration(cache_key, True)
                 else:
-                    logger.error(f"Failed to register agent {agent_card.name}: {response.status_code}")
+                    logger.error(f"Failed to register agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {response.status_code}")
                     return  # Don't send heartbeat if registration failed
             except Exception as e:
-                logger.error(f"Error registering agent {agent_card.name}: {e}")
+                logger.error(f"Error registering agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {e}")
                 return  # Don't send heartbeat if registration failed
         
         # Step 3: Send heartbeat only if agent is registered
@@ -451,66 +455,76 @@ def check_and_maintain_registration(agent_card: AgentCard):
             try:
                 response = requests.post(f"{REGISTRY_URL}/registry/heartbeat", json={"url": agent_card.url})
                 if response.status_code == 200:
-                    logger.info(f"Heartbeat sent successfully for agent {agent_card.name}")
+                    logger.info(f"Heartbeat sent successfully for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}")
                 else:
-                    logger.warning(f"Failed to send heartbeat for agent {agent_card.name}: {response.status_code}")
+                    logger.warning(f"Failed to send heartbeat for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {response.status_code}")
                     # If heartbeat fails, the agent might have been removed from registry
                     # Clear the cache to force a re-check next time
                     if response.status_code == 404:
                         _set_cached_registration(cache_key, False)
                         logger.info(f"Agent {agent_card.name} appears to have been removed from registry, will re-register next cycle")
             except Exception as e:
-                logger.error(f"Error sending heartbeat for agent {agent_card.name}: {e}")
+                logger.error(f"Error sending heartbeat for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {e}")
         else:
             logger.warning(f"Agent {agent_card.name} is not registered, skipping heartbeat")
             
     except Exception as e:
-        logger.error(f"Unexpected error in check_and_maintain_registration for agent {agent_card.name}: {e}")
+        logger.error(f"Unexpected error in check_and_maintain_registration for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {e}")
 
 
 @click.command()
 @click.option("--agent-name", default="web_search_agent", help="Name of the agent to run")
 def run_agent_server(agent_name: str):
-    HOST = os.getenv("HOST", "0.0.0.0")
-    PORT = int(os.getenv("PORT", 10020))
+    URL = os.getenv("URL", "http://0.0.0.0:10020")
+    HOST = urlparse(URL).hostname
+    PORT = int(urlparse(URL).port)
+
 
     async def run_with_background_tasks():
-        app = await create_sub_agent(agent_name)
-        fastapi_app = app.build()
+        starlette_app = await create_sub_agent(agent_name, url=URL)
+        fastapi_app = starlette_app.build()
         
         # Add background task for periodic registration
         registration_task = None
         
-        @fastapi_app.on_event("startup")
-        async def startup_event():
+        @contextlib.asynccontextmanager
+        async def lifespan(app: FastAPI):
             nonlocal registration_task
+            # Startup
             # Do initial registration attempt and health check
-            logger.info(f"Attempting initial registration for agent {app.agent_card.name}")
-            await asyncio.get_event_loop().run_in_executor(None, check_and_maintain_registration, app.agent_card)
+            logger.info(f"Attempting initial registration for agent {starlette_app.agent_card.name}")
+            await asyncio.get_event_loop().run_in_executor(None, check_and_maintain_registration, starlette_app.agent_card)
             
             # Start the periodic registration task
-            registration_task = asyncio.create_task(periodic_registration_check(app.agent_card))
+            registration_task = asyncio.create_task(periodic_registration_check(starlette_app.agent_card))
             interval = os.getenv("AGENT_HEARTBEAT_INTERVAL", "30")
-            logger.info(f"Started periodic registration check for agent {app.agent_card.name} with {interval}s interval")
-        
-        @fastapi_app.on_event("shutdown")
-        async def shutdown_event():
+            logger.info(f"Started periodic registration check for agent {starlette_app.agent_card.name} with {interval}s interval")
+            
+            yield
+            
+            # Shutdown
             if registration_task and not registration_task.done():
                 registration_task.cancel()
                 try:
                     await registration_task
                 except asyncio.CancelledError:
                     pass
-                logger.info(f"Stopped periodic registration check for agent {app.agent_card.name}")
+                logger.info(f"Stopped periodic registration check for agent {starlette_app.agent_card.name}")
+        
+        # Set the lifespan context manager
+        fastapi_app.router.lifespan_context = lifespan
         
         return fastapi_app
     
     # Run the async function and get the FastAPI app
     fastapi_app = asyncio.run(run_with_background_tasks())
-    
+    logger.info(f"Access agent at: {URL}") 
+    logger.debug(f"HOST: {HOST}") 
+    logger.debug(f"PORT: {PORT}")
+
     uvicorn.run(
         fastapi_app,
-        host=HOST,
+        host="0.0.0.0",
         port=PORT,
     )
 
