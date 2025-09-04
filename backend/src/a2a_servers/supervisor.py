@@ -152,6 +152,9 @@ async def build_tools_from_registry(
 
 # --- Supervisor Agent --------------------------------------------------------
 class SupervisorAgent:
+    SUPPORTED_CONTENT_TYPES = ["text", "text/plain", "text/event-stream", "application/json"]
+
+    
     def __init__(self, name, model: BaseChatModel, tools, prompt: str):
         self.name = name
         self.tools = tools
@@ -247,6 +250,7 @@ class SupervisorAgent:
             is_task_complete=False,
             require_user_input=True,
             content="We are unable to process your request at the moment. Please try again.",
+            step_number=len(messages),
             metadata={"message_type": "error", "error": "no_messages"},
         )
 
@@ -326,7 +330,8 @@ async def create_supervisor_agent(agent_name: str):
         for skill in agent_config.get("skills", [])
     ]
     description = agent_config.get("description", "")
-    capabilities = agent_config.get("capabilities", {})
+    # capabilities = agent_config.get("capabilities", {})
+    capabilities = AgentCapabilities(streaming=True, pushNotifications=False)
     agent_card = AgentCard(
         version="1.0.0",
         name=agent_name,
@@ -334,8 +339,8 @@ async def create_supervisor_agent(agent_name: str):
         url=agent_config["agent_url"],
         capabilities=capabilities,
         skills=skills,
-        default_input_modes=["text/plain", "application/json"],
-        default_output_modes=["application/json"],
+        default_input_modes=SupervisorAgent.SUPPORTED_CONTENT_TYPES,
+        default_output_modes=SupervisorAgent.SUPPORTED_CONTENT_TYPES,
     )
 
     executor = BaseAgentExecutor(agent=agent, status_message="Processing request...", artifact_name="supervisor_response")

@@ -1,108 +1,96 @@
-import json
-import os
-import asyncio
+import os, json, asyncio
 from typing import Optional
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
+from uuid import uuid4
+
+import httpx
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from python_a2a import A2AClient
-from python_a2a.models.message import Message, MessageRole
-from python_a2a.models.content import TextContent
 
-A2A_AGENT_URL = os.getenv("A2A_AGENT_URL", "http://localhost:41241")
+# --- A2A SDK imports (adjust paths to your SDK) ---
+from a2a.client import A2AClient
+from a2a.client import A2ACardResolver
+from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH, EXTENDED_AGENT_CARD_PATH
+from a2a.types import MessageSendParams, SendStreamingMessageRequest
+from a2a.utils import new_agent_text_message
+import logging
 
-# Global variable for A2A client
-a2a_client: Optional[A2AClient] = None
+logger = logging.getLogger(__name__)   
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global a2a_client
-    try:
-        print(f"Connecting to A2A agent at: {A2A_AGENT_URL}")
-        a2a_client = A2AClient(A2A_AGENT_URL)
-        print("A2A client initialized successfully")
-    except Exception as e:
-        print(f"Warning: Could not initialize A2A client: {e}")
-    yield
-    if a2a_client:
-        try:
-            print("Shutting down A2A client...")
-        except Exception as e:
-            print(f"Error during A2A client shutdown: {e}")
-
-class ChatRequest(BaseModel):
+# --------- request models ----------
+class ChatReq(BaseModel):
     message: str = Field(..., example="What's the latest news about Apple's stock?")
-    task_id: Optional[str] = Field(None, example="1234567890")
-    conversation_id: Optional[str] = Field(None, example="1234567890")
+    context_id: Optional[str] = Field(None, example="123")
+    task_id: Optional[str] = Field(None, example="123")
 
-class ChatResponse(BaseModel):
-    response: dict|str
-    conversation_id: str
-    status: str
-    error: Optional[str] = None
+app = FastAPI(title="A2A Chat Service", version="1.0.0")
+A2A_AGENT_URL = os.getenv("A2A_AGENT_URL", "http://ohcm_supervisor_agent:10020")
+logger.info(f"A2A_AGENT_URL: {A2A_AGENT_URL}")
 
-def create_app() -> FastAPI:
-    app = FastAPI(
-        title="A2A Chat Service",
-        description="FastAPI service for communicating with A2A agents",
-        version="1.0.0",
-        lifespan=lifespan,
-    )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],  # tighten for prod
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
 
-    @app.get("/")
-    async def root():
-        return {"message": "A2A Chat Service is running", "a2a_agent_url": A2A_AGENT_URL}
-
-    @app.get("/health")
-    async def health_check(request: Request):
-        global a2a_client
-        if a2a_client is None:
-            return {"status": "unhealthy", "a2a_agent_url": A2A_AGENT_URL, "error": "A2A client not initialized"}
-        return {"status": "healthy", "a2a_agent_url": A2A_AGENT_URL}
-
-    @app.post("/chat", response_model=ChatResponse)
-    async def chat_with_agent(body: ChatRequest, request: Request):
-        global a2a_client
-        if a2a_client is None:
-            raise HTTPException(status_code=503, detail="A2A client not available")
-
-        conversation_id = body.conversation_id or f"conv_{len(body.message)}_{hash(body.message) % 10000}"
-        msg = Message(
-            content=TextContent(text=body.message),
-            role=MessageRole.USER,
-            metadata={"conversation_id": conversation_id, "task_id": body.task_id} if body.task_id else {"conversation_id": conversation_id},
+# --------- per-request streaming helper ----------
+async def async_send_message_streaming(
+    agent_url: str, message: str, context_id: str | None, task_id: str | None
+):
+    timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as httpx_client:
+        resolver = A2ACardResolver(
+            httpx_client=httpx_client,
+            base_url=agent_url,
+            agent_card_path=AGENT_CARD_WELL_KNOWN_PATH,
         )
 
-        # Offload sync client call if needed
-        try:
-            resp = await a2a_client.send_message_async(msg)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Unexpected error: {e}")
+        public_card = await resolver.get_agent_card()
+        final_card = public_card
 
-        if getattr(resp, "error", None):
-            err = f"Error from A2A agent: {resp.error}"
-            return ChatResponse(response={"error": err}, conversation_id=conversation_id, status="error")
+        if getattr(public_card, "supports_authenticated_extended_card", False):
+            try:
+                extended = await resolver.get_agent_card(
+                    relative_card_path=EXTENDED_AGENT_CARD_PATH,
+                )
+                final_card = extended
+            except Exception:
+                pass  # fall back to public card
 
-        if hasattr(resp, "content") and resp.content:
-            response_text = json.loads(getattr(resp.content, "text", resp.content))
-        else:
-            response_text = {"error": "No response from agent"}
+        client = A2AClient(httpx_client=httpx_client, agent_card=final_card)
 
-        return ChatResponse(response=response_text, conversation_id=conversation_id, status="success")
+        payload = new_agent_text_message(message, context_id=context_id or str(uuid4()))
+        params = MessageSendParams(message=payload)
+        req = SendStreamingMessageRequest(id=str(uuid4()), params=params)
 
-    @app.get("/conversations/{conversation_id}")
-    async def get_conversation(conversation_id: str):
-        return {"conversation_id": conversation_id, "message": "Conversation history endpoint - implement as needed"}
-
-    return app
+        stream = client.send_message_streaming(req)
+        async for chunk in stream:
+            # yield each chunk as JSON lines (NDJSON)
+            yield json.dumps(chunk.model_dump(mode="json", exclude_none=True)) + "\n"
 
 
+# --------- endpoints ----------
+@app.post("/chat/stream")
+async def chat_stream(body: ChatReq):
+    agent_url = A2A_AGENT_URL
+
+    async def gen():
+        async for line in async_send_message_streaming(
+            agent_url=agent_url,
+            message=body.message,
+            context_id=body.context_id,
+            task_id=body.task_id,
+        ):
+            yield line
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
+
+
+@app.post("/chat")
+async def chat_non_stream(body: ChatReq):
+    agent_url = A2A_AGENT_URL
+    lines = []
+    async for line in async_send_message_streaming(
+        agent_url=agent_url,
+        message=body.message,
+        context_id=body.context_id,
+        task_id=body.task_id,
+    ):
+        lines.append(json.loads(line))
+    return {"chunks": lines}

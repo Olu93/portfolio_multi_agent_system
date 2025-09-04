@@ -62,7 +62,7 @@ services:
       - ./backend/src/serve:/app/serve
     working_dir: /app
     restart: unless-stopped
-    command: uvicorn serve.run:create_app --factory --host 0.0.0.0 --port 9002
+    command: uvicorn serve.run:app --host 0.0.0.0 --port 9002
 
 
   supervisor-agent:
@@ -99,6 +99,8 @@ services:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config
     working_dir: /app
+    restart: unless-stopped
+
 
   communication-agent:
     build:
