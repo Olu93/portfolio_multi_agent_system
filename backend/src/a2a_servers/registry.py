@@ -67,15 +67,15 @@ async def cleanup_stale_agents():
             for url, last_seen in registry_server.last_seen.items():
                 if current_time - last_seen > HEARTBEAT_TIMEOUT:
                     agents_to_remove.append(url)
-                    logging.warning(f"Agent {url} has not sent heartbeat for {HEARTBEAT_TIMEOUT} seconds, removing from registry")
+                    logger.warning(f"Agent {url} has not sent heartbeat for {HEARTBEAT_TIMEOUT} seconds, removing from registry")
 
             # Remove stale agents
             for url in agents_to_remove:
                 registry_server.unregister_agent(url)
-                logging.info(f"Removed stale agent: {url}")
+                logger.info(f"Removed stale agent: {url}")
 
         except Exception as e:
-            logging.error(f"Error during cleanup: {e}")
+            logger.error(f"Error during cleanup: {e}")
 
         await asyncio.sleep(CLEANUP_INTERVAL)
 
@@ -102,6 +102,7 @@ async def lookup_agent(lookup_request: LookupRequest):
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
+    logger.info("Health check endpoint called")
     return {"status": "healthy"}
 
 @app.post("/registry/heartbeat")
@@ -110,12 +111,12 @@ async def heartbeat(request: HeartbeatRequest):
     try:
         if request.url in registry_server.agents:
             registry_server.last_seen[request.url] = time.time()
-            logging.info(f"Received heartbeat from agent at {request.url}")
+            logger.info(f"Received heartbeat from agent at {request.url}")
             return {"success": True}
-        logging.warning(f"Received heartbeat from unregistered agent: {request.url}")
+        logger.warning(f"Received heartbeat from unregistered agent: {request.url}")
         return {"success": False, "error": "Agent not registered"}, 404
     except Exception as e:
-        logging.error(f"Error processing heartbeat: {e}")
+        logger.error(f"Error processing heartbeat: {e}")
         return {"success": False, "error": str(e)}, 400
 
 @app.get("/registry/agents/{url}", response_model=AgentCard)
