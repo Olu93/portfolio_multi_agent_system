@@ -16,14 +16,14 @@ from a2a.types import (
     AgentCard,
     AgentSkill,
     Part,
+    Artifact,
     TaskState,
     TextPart,
 )
 from a2a.server.agent_execution import AgentExecutor, RequestContext
-from a2a.utils import new_agent_text_message, new_task, new_agent_parts_message
 from a2a.server.events import EventQueue
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
+from a2a.server.tasks import InMemoryTaskStore
 from a2a.server.apps import A2AStarletteApplication
 
 from langchain_core.messages import AIMessage, ToolMessage, BaseMessage
@@ -35,7 +35,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 
-from a2a_servers.a2a_client import A2ASubAgentClient
+from a2a_servers.a2a_client import A2ASubAgentClient, call_execute, BaseAgent, ChunkResponse, ChunkMetadata
 from a2a_servers.config_loader import (
     load_agent_config,
     load_model_config,
@@ -60,14 +60,7 @@ memory = InMemorySaver()
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
-# --- Stream chunk model ------------------------------------------------------
-class ChunkResponse(BaseModel):
-    is_task_complete: bool = False
-    require_user_input: bool = False
-    content: str
-    step_number: Optional[int] = None
-    tool_name: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+
 
 # --- Registry client ---------------------------------------------------------
 REGISTRY_URL = os.getenv("REGISTRY_URL", "http://registry:8000")
@@ -157,7 +150,7 @@ async def build_tools_from_registry(
     return tools
 
 # --- Supervisor Agent --------------------------------------------------------
-class SupervisorAgent:
+class SupervisorAgent(BaseAgent):
     SUPPORTED_CONTENT_TYPES = ["text", "text/plain", "text/event-stream", "application/json"]
 
     
@@ -188,8 +181,8 @@ class SupervisorAgent:
         return gb.compile(checkpointer=memory, name=self.name)
 
 
-    async def stream(self, query: str, context_id: str, task_id: str) -> AsyncIterable[ChunkResponse]:
-        inputs = {"messages": [("user", query)]}
+    async def stream(self, artifacts: list[Artifact], context_id: str, task_id: str) -> AsyncIterable[ChunkResponse]:
+        inputs = {"messages": [("user", self._extract_parts(artifact)) for artifact in artifacts]}
         config = {"configurable": {"thread_id": context_id, "task_id": task_id, "stream_id": str(uuid.uuid4())}}
 
         async for evt in self.graph.astream(inputs, config, stream_mode=["values", "custom"]):
@@ -204,11 +197,10 @@ class SupervisorAgent:
                 text = payload.get("text", "")
                 tool = payload.get("tool")
                 yield ChunkResponse(
-                    is_task_complete=False,
-                    require_user_input=False,
+                    status=TaskState.working,
                     content=text,
                     tool_name=tool,
-                    metadata={"message_type": "tool_stream"},
+                    metadata=ChunkMetadata(message_type="tool_stream", step_number=0),
                 )
                 continue
 
@@ -220,24 +212,23 @@ class SupervisorAgent:
             last = messages[-1]
             if isinstance(last, AIMessage) and getattr(last, "tool_calls", None):
                 yield ChunkResponse(
-                    is_task_complete=False,
-                    require_user_input=False,
+                    status=TaskState.working,
                     content="Processing the request...",
-                    step_number=len(messages),
                     tool_name=last.tool_calls[0].get("name") if last.tool_calls else None,
-                    metadata={"message_type": "tool_call"},
+                    metadata=ChunkMetadata(message_type="tool_call", step_number=len(messages)),
                 )
             elif isinstance(last, ToolMessage):
                 yield ChunkResponse(
-                    is_task_complete=False,
-                    require_user_input=False,
+                    status=TaskState.working,
                     content="Executing the tool...",
-                    step_number=len(messages),
-                    metadata={"message_type": "tool_execution"},
+                    metadata=ChunkMetadata(message_type="tool_execution", step_number=len(messages)),
                 )
 
         # final state
         yield self.get_agent_response(config)
+
+    def _extract_parts(self, artifact: Artifact):
+        return f"artifact: {artifact.name}" + "\n"  + "\n".join([f'{p["kind"]}: {p["text"]}' for p in artifact.parts])
 
     def get_agent_response(self, config) -> ChunkResponse:
         current_state = self.graph.get_state(config)
@@ -246,18 +237,14 @@ class SupervisorAgent:
             last = messages[-1]
             text = getattr(last, "content", str(last))
             return ChunkResponse(
-                is_task_complete=True,
-                require_user_input=False,
+                status=TaskState.completed,
                 content=text,
-                step_number=len(messages),
-                metadata={"message_type": "final_response"},
+                metadata=ChunkMetadata(message_type="final_response", step_number=len(messages)),
             )
         return ChunkResponse(
-            is_task_complete=False,
-            require_user_input=True,
+            status=TaskState.input_required,
             content="We are unable to process your request at the moment. Please try again.",
-            step_number=len(messages),
-            metadata={"message_type": "error", "error": "no_messages"},
+            metadata=ChunkMetadata(message_type="error", error="no_messages", step_number=len(messages)),
         )
 
 # --- Agent Executor ----------------------------------------------------------
@@ -268,36 +255,8 @@ class BaseAgentExecutor(AgentExecutor):
         self.artifact_name = artifact_name
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
-        query = context.get_user_input()
-        task = context.current_task or new_task(context.message)
-        await event_queue.enqueue_event(task)
+        await call_execute(self.agent, context, event_queue)
 
-        updater = TaskUpdater(event_queue, context_id=task.context_id, task_id=task.id)
-        try:
-            async for item in self.agent.stream(query, context_id=task.context_id, task_id=task.id):
-                if not item.is_task_complete and not item.require_user_input:
-                    await updater.update_status(
-                        TaskState.working,
-                        new_agent_text_message(item.content, task.context_id, task.id),
-                    )
-                elif item.require_user_input:
-                    await updater.update_status(
-                        TaskState.input_required,
-                        new_agent_text_message(item.content, task.context_id, task.id),
-                        final=True,
-                    )
-                    break
-                else:
-                    await updater.add_artifact([Part(root=TextPart(text=item.content))], name=self.artifact_name)
-                    await updater.complete()
-                    break
-        except Exception as e:
-            logger.exception("Supervisor execute failed")
-            await updater.update_status(
-                TaskState.failed,
-                new_agent_text_message(f"Error: {e!s}", task.context_id, task.id),
-                final=True,
-            )
 
     async def execute_streaming(self, context: RequestContext, event_queue: EventQueue) -> None:
         await self.execute(context, event_queue)
