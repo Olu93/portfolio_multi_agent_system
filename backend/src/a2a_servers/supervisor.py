@@ -227,8 +227,7 @@ class SupervisorAgent(BaseAgent):
         # final state
         yield self.get_agent_response(config)
 
-    def _extract_parts(self, artifact: Artifact):
-        return f"artifact: {artifact.name}" + "\n"  + "\n".join([f'{p["kind"]}: {p["text"]}' for p in artifact.parts])
+
 
     def get_agent_response(self, config) -> ChunkResponse:
         current_state = self.graph.get_state(config)

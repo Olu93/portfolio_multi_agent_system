@@ -15,6 +15,8 @@ from a2a.types import (
     Artifact,
     Part,
     TextPart,
+    FilePart,
+    DataPart,
     TaskState,
 )
 from a2a.server.agent_execution import RequestContext
@@ -155,10 +157,21 @@ class BaseAgent:
     async def stream(self, artifacts: list[Artifact], context_id: str, task_id: str) -> AsyncIterable[ChunkResponse]:
         yield None
 
+    def _format_part(self, part: Part):
+        if isinstance(part.root, FilePart):
+            return f'{part.root.kind}: {part.root.file}'
+        elif isinstance(part.root, DataPart):
+            return f'{part.root.kind}: {part.root.data}'
+        return f'{part.root.kind}: {part.root.text}'
+        
+
+    def _extract_parts(self, artifact: Artifact):
+        return f"artifact: {artifact.name}" + "\n"  + "\n".join([self._format_part(p) for p in artifact.parts])
+
 async def call_execute(agent:BaseAgent, context: RequestContext, event_queue: EventQueue):
     query = context.get_user_input() or ""
     task = context.current_task or new_task(context.message)
-    artifacts: list[Artifact] = task.artifacts + [Artifact(name="User-Input", parts=[Part(root=TextPart(text=query))])]
+    artifacts: list[Artifact] = (task.artifacts or []) + [Artifact(name="User-Input", parts=[Part(root=TextPart(text=query))], artifact_id=str(uuid4()))]
     await event_queue.enqueue_event(task)
     updater = TaskUpdater(event_queue, context_id=task.context_id, task_id=task.id)
 
