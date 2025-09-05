@@ -12,11 +12,12 @@ services:
       - HOST=0.0.0.0
       - DANGEROUSLY_OMIT_AUTH=true 
       # - MCP_PROXY_AUTH_TOKEN=${MCP_PROXY_AUTH_TOKEN} # TODO: Use this instead. FOLLOW-UP: Doesn't work.
-      - MCP_PROXY_FULL_ADDRESS=http://mcp-inspector:6277
-      - ALLOWED_ORIGINS=http://localhost:6274,http://localhost:8000
+      - MCP_PROXY_FULL_ADDRESS=http://localhost:6277
+      - ALLOWED_ORIGINS=http://localhost:6274,http://localhost:8000,http://localhost:9000
       - MCP_AUTO_OPEN_ENABLED=false
     ports:
       - "9000:6274"
+      - "6277:6277" # Mandatory for inspector to work
     volumes:
       - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers

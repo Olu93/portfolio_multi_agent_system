@@ -556,7 +556,7 @@ ti = TechnicalIndicators()
 
 
 @mcp.tool("get_stock_price")
-def get_stock_price(symbol: str) -> str:
+def get_stock_price(symbol: str) -> Dict[str, Any]:
 
     """
     Retrieve the current stock price and related data for the given symbol, 
@@ -566,7 +566,7 @@ def get_stock_price(symbol: str) -> str:
         symbol (str): The ticker symbol of the stock (case-insensitive).
 
     Returns:
-        str: A JSON-formatted string containing:
+        Dict[str, Any]: A JSON object containing:
             - symbol (str): The stock symbol in uppercase.
             - current_price (float): The latest stock price, rounded to 2 decimals.
             - previous_close (float): Previous closing price.
@@ -583,7 +583,7 @@ def get_stock_price(symbol: str) -> str:
     # Attempt to retrieve cached price data to reduce API calls
     cached_price = state.get_from_cache(f"price_{symbol}")
     if cached_price:
-        return json.dumps(format_response(cached_price))
+        return format_response(cached_price)
     
     try:
         ticker = fetch_ticker(symbol)
@@ -605,14 +605,14 @@ def get_stock_price(symbol: str) -> str:
        
         state.add_to_cache(f"price_{symbol}", price_data)
         
-        return json.dumps(format_response(price_data))
+        return format_response(price_data)
     except Exception as e:
-        return json.dumps(format_response(None, False, str(e)))
+        return format_response(None, False, str(e))
 
 
 
 @mcp.tool("get_stock_info")
-def get_stock_info(ticker: str) -> str:
+def get_stock_info(ticker: str) -> Dict[str, Any]:
 
     """
     Retrieve comprehensive company information for a given stock ticker symbol.
@@ -648,7 +648,7 @@ def get_stock_info(ticker: str) -> str:
         info = company.info
         
         if not info or not info.get('longName'):
-            return json.dumps(format_response(None, False, f"Ticker {ticker} not found"))
+            return format_response(None, False, f"Ticker {ticker} not found")
         
         company_data = {
             'symbol': ticker,
@@ -670,14 +670,14 @@ def get_stock_info(ticker: str) -> str:
             'currency': info.get('currency', 'USD')
         }
         
-        return json.dumps(format_response(company_data))
+        return format_response(company_data)
     except Exception as e:
-        return json.dumps(format_response(None, False, str(e)))
+        return format_response(None, False, str(e))
 
 
 
 @mcp.tool("get_historical_stock_prices")
-def get_historical_stock_prices(ticker: str, period: str = "1mo", interval: str = "1d") -> str:
+def get_historical_stock_prices(ticker: str, period: str = "1mo", interval: str = "1d") -> Dict[str, Any]:
 
     """
     Retrieve historical stock price data for a given ticker symbol.
@@ -688,7 +688,7 @@ def get_historical_stock_prices(ticker: str, period: str = "1mo", interval: str 
         interval (str, optional): The data interval (e.g., '1d', '1wk', '1mo'). Defaults to "1d".
 
     Returns:
-        str: JSON-formatted string containing:
+        Dict[str, Any]: JSON object containing:
             - symbol (str): The ticker symbol.
             - period (str): The requested historical period.
             - interval (str): The data interval.
@@ -709,7 +709,7 @@ def get_historical_stock_prices(ticker: str, period: str = "1mo", interval: str 
         data = company.history(period=period, interval=interval)
         
         if data.empty:
-            return json.dumps(format_response(None, False, f"No historical data found for {ticker}"))
+            return format_response(None, False, f"No historical data found for {ticker}")
         
         # Convert to list of dictionaries
         historical_data = []
@@ -731,14 +731,14 @@ def get_historical_stock_prices(ticker: str, period: str = "1mo", interval: str 
             'total_records': len(historical_data)
         }
         
-        return json.dumps(format_response(result))
+        return format_response(result)
     except Exception as e:
-        return json.dumps(format_response(None, False, str(e)))
+        return format_response(None, False, str(e))
 
 
 
 @mcp.tool("get_financial_statement")
-def get_financial_statement(ticker: str, financial_type: str) -> str:
+def get_financial_statement(ticker: str, financial_type: str) -> Dict[str, Any]:
 
     """
     Retrieve specified financial statements for a given stock ticker.
@@ -755,7 +755,7 @@ def get_financial_statement(ticker: str, financial_type: str) -> str:
                               - quarterly_cashflow
 
     Returns:
-        str: JSON-formatted string containing:
+        Dict[str, Any]: JSON object containing:
             - symbol (str): The ticker symbol.
             - financial_type (str): The requested financial statement type.
             - data (list): A list of dictionaries, each representing the financial data for a specific date.
@@ -780,7 +780,7 @@ def get_financial_statement(ticker: str, financial_type: str) -> str:
         
         fs_data = mapping.get(financial_type)
         if fs_data is None or fs_data.empty:
-            return json.dumps(format_response(None, False, f"No {financial_type} data available for {ticker}"))
+            return format_response(None, False, f"No {financial_type} data available for {ticker}")
         
         # Convert dataframe to list of dicts with date keys
         result = []
@@ -791,24 +791,24 @@ def get_financial_statement(ticker: str, financial_type: str) -> str:
                 row[idx] = None if pd.isna(value) else float(value) if isinstance(value, (int, float)) else value
             result.append(row)
         
-        return json.dumps(format_response({
+        return format_response({
             'symbol': ticker,
             'financial_type': financial_type,
             'data': result
-        }))
+        })
     except Exception as e:
-        return json.dumps(format_response(None, False, str(e)))
+        return format_response(None, False, str(e))
 
 
 @mcp.tool("get_holder_info")
-async def get_holder_info(ticker: str, holder_type: str) -> str:
+async def get_holder_info(ticker: str, holder_type: str) -> Dict[str, Any]:
     """Get holder information for a given ticker symbol."""
     try:
         company = Ticker(ticker.upper())
         if company.isin is None:
-            return json.dumps(format_response(None, False, f"Company ticker '{ticker}' not found."))
+            return format_response(None, False, f"Company ticker '{ticker}' not found.")
     except Exception as e:
-        return json.dumps(format_response(None, False, f"Error getting holder info for '{ticker}': {e}"))
+        return format_response(None, False, f"Error getting holder info for '{ticker}': {e}")
 
     try:
         match holder_type:
@@ -825,22 +825,22 @@ async def get_holder_info(ticker: str, holder_type: str) -> str:
             case HolderType.insider_roster_holders:
                 data = company.insider_roster_holders.to_dict(orient="records")
             case _:
-                return json.dumps(format_response(
+                return format_response(
                     None,
                     False,
                     f"Error: Invalid holder type '{holder_type}'. Valid types: {', '.join([h.value for h in HolderType])}"
-                ))
+                )
 
-        return json.dumps(format_response(data))
+        return format_response(data)
     except Exception as e:
-        return json.dumps(format_response(None, False, f"Error retrieving {holder_type} data for '{ticker}': {e}"))
+        return format_response(None, False, f"Error retrieving {holder_type} data for '{ticker}': {e}")
 
 
 
 # Technical Analysis Tools
 @mcp.tool("get_moving_averages")
 def get_moving_averages(symbol: str, period: str = "6mo", interval: str = "1d", 
-                        windows: List[int] = [20, 50, 200]) -> str:
+                        windows: List[int] = [20, 50, 200]) -> Dict[str, Any]:
     
     """Calculate multiple Simple Moving Averages (SMA) and Exponential Moving Averages (EMA) for a stock."""
     try:
@@ -860,13 +860,13 @@ def get_moving_averages(symbol: str, period: str = "6mo", interval: str = "1d",
             'symbol': symbol.upper()
         })
         
-        return json.dumps(format_response(result))
+        return format_response(result)
     except Exception as e:
-        return json.dumps(format_response(None, False, str(e)))
+        return format_response(None, False, str(e))
 
 
 @mcp.tool("get_rsi")
-def get_rsi(symbol: str, period: str = "6mo", interval: str = "1d", window: int = 14) -> str:
+def get_rsi(symbol: str, period: str = "6mo", interval: str = "1d", window: int = 14) -> Dict[str, Any]:
     """ Calculate the Relative Strength Index (RSI) for a given stock symbol."""
     try:
         data = ti.get_stock_data(symbol, period, interval)
@@ -882,14 +882,14 @@ def get_rsi(symbol: str, period: str = "6mo", interval: str = "1d", window: int 
             'oversold': bool(rsi.iloc[-1] < 30)     
         }
         
-        return json.dumps(format_response(result))
+        return format_response(result)
     except Exception as e:
-        return json.dumps(format_response(None, False, str(e)))
+        return format_response(None, False, str(e))
 
 
 @mcp.tool("get_macd")
 def get_macd(symbol: str, period: str = "6mo", interval: str = "1d", 
-            fast_period: int = 12, slow_period: int = 26, signal_period: int = 9) -> str:
+            fast_period: int = 12, slow_period: int = 26, signal_period: int = 9) -> Dict[str, Any]:
     
     """Calculate the Moving Average Convergence Divergence (MACD) indicator for a given stock symbol."""
     try:
@@ -906,15 +906,15 @@ def get_macd(symbol: str, period: str = "6mo", interval: str = "1d",
             'bullish_crossover': bool(macd_data['macd'].iloc[-1] > macd_data['signal'].iloc[-1])
         }
         
-        return json.dumps(format_response(result))
+        return format_response(result)
     except Exception as e:
-        return json.dumps(format_response(None, False, str(e)))
+        return format_response(None, False, str(e))
 
 
 
 @mcp.tool("get_bollinger_bands")
 def get_bollinger_bands(symbol: str, period: str = "6mo", interval: str = "1d",
-                        window: int = 20, num_std: float = 2.0) -> str:
+                        window: int = 20, num_std: float = 2.0) -> Dict[str, Any]:
     
     """ Calculate Bollinger Bands for a given stock symbol.
 
@@ -939,14 +939,14 @@ def get_bollinger_bands(symbol: str, period: str = "6mo", interval: str = "1d",
             'squeeze': bool((upper_band - lower_band) / bb_data['middle'].iloc[-1] < 0.1)
         }
         
-        return json.dumps(format_response(result))
+        return format_response(result)
     except Exception as e:
-        return json.dumps(format_response(None, False, str(e)))
+        return format_response(None, False, str(e))
     
 
     
 @mcp.tool("get_technical_summary")
-def get_technical_summary(symbol: str) -> str:
+def get_technical_summary(symbol: str) -> Dict[str, Any]:
     """
     Generate a comprehensive technical analysis summary for a given stock symbol.
 
@@ -965,10 +965,10 @@ def get_technical_summary(symbol: str) -> str:
         data = ti.get_stock_data(symbol, period="1y", interval="1d")
 
         if data is None or data.empty:
-            return json.dumps(format_response(None, False, f"No data found for {symbol.upper()}"))
+            return format_response(None, False, f"No data found for {symbol.upper()}")
 
         if len(data) < 200:
-            return json.dumps(format_response(None, False, "Not enough data to calculate indicators (need 200+ days)"))
+            return format_response(None, False, "Not enough data to calculate indicators (need 200+ days)")
 
         latest_price = data['Close'].iloc[-1]
 
@@ -1061,63 +1061,63 @@ def get_technical_summary(symbol: str) -> str:
             }
         }
 
-        return json.dumps(format_response(result))
+        return format_response(result)
 
     except Exception as e:
-        return json.dumps(format_response(None, False, str(e)))
+        return format_response(None, False, str(e))
 
 
 
 # Watchlist Management
 @mcp.tool("add_to_watchlist")
-def add_to_watchlist(symbol: str) -> str:
+def add_to_watchlist(symbol: str) -> Dict[str, Any]:
 
     """Add a stock symbol to the user's watchlist."""
     symbol = symbol.upper()
     
     if not validate_ticker(symbol):
-        return json.dumps(format_response(None, False, f"Invalid ticker symbol: {symbol}"))
+        return format_response(None, False, f"Invalid ticker symbol: {symbol}")
     
     state.watchlist.add(symbol)
-    return json.dumps(format_response(
+    return format_response(
         {'symbol': symbol, 'watchlist_size': len(state.watchlist)},
         True,
         f"Added {symbol} to watchlist"
-    ))
+    )
 
 @mcp.tool("remove_from_watchlist")
-def remove_from_watchlist(symbol: str) -> str:
+def remove_from_watchlist(symbol: str) -> Dict[str, Any]:
 
     """Remove a stock symbol from the user's watchlist."""
     symbol = symbol.upper()
     
     if symbol in state.watchlist:
         state.watchlist.remove(symbol)
-        return json.dumps(format_response(
+        return format_response(
             {'symbol': symbol, 'watchlist_size': len(state.watchlist)},
             True,
             f"Removed {symbol} from watchlist"
-        ))
+        )
     
-    return json.dumps(format_response(None, False, f"{symbol} not in watchlist"))
+    return format_response(None, False, f"{symbol} not in watchlist")
 
 
 @mcp.tool("get_watchlist")
-def get_watchlist() -> str:
+def get_watchlist() -> Dict[str, Any]:
 
     """Retrieve all stock symbols currently in the watchlist."""
-    return json.dumps(format_response({
+    return format_response({
         'symbols': sorted(list(state.watchlist)),
         'count': len(state.watchlist)
-    }))
+    })
 
 
 @mcp.tool("get_watchlist_prices")
-def get_watchlist_prices() -> str:
+def get_watchlist_prices() -> Dict[str, Any]:
 
     """Fetch the current prices for all stocks in the watchlist"""
     if not state.watchlist:
-        return json.dumps(format_response([], True, "Watchlist is empty"))
+        return format_response([], True, "Watchlist is empty")
     
     prices = []
     for symbol in sorted(state.watchlist):
@@ -1137,12 +1137,12 @@ def get_watchlist_prices() -> str:
                 'error': str(e)
             })
     
-    return json.dumps(format_response(prices))
+    return format_response(prices)
 
 
 # News and Recommendations
 @mcp.tool("get_yahoo_finance_news")
-def get_yahoo_finance_news(ticker: str) -> str:
+def get_yahoo_finance_news(ticker: str) -> Dict[str, Any]:
 
     """Get the latest news articles related to a stock ticker from Yahoo Finance."""
     ticker = ticker.upper()
@@ -1152,29 +1152,30 @@ def get_yahoo_finance_news(ticker: str) -> str:
         news_list = company.news
         
         results = []
-        for item in news_list[:10]:  # Limit to 10 most recent
+        for i in news_list[:10]:  # Limit to 10 most recent
+            item: dict = i.get('content')
             results.append({
                 'title': item.get('title', ''),
-                'publisher': item.get('publisher', ''),
-                'link': item.get('link', ''),
-                'published': datetime.fromtimestamp(item.get('providerPublishTime', 0)).isoformat() if item.get('providerPublishTime') else '',
-                'summary': item.get('summary', '')[:200] + "..." if item.get('summary') else ''
+                'publisher': item.get('provider', {}).get('url', ''),
+                'link': item.get('canonicalUrl', {}).get('url', ''),
+                'published': item.get('pubDate', ''),
+                'summary': item.get('summary', '')
             })
         
-        return json.dumps(format_response({
+        return format_response({
             'symbol': ticker,
             'news': results,
             'count': len(results)
-        }))
+        })
     except Exception as e:
-        return json.dumps(format_response(None, False, str(e)))
+        return format_response(None, False, str(e))
 
 @mcp.tool("get_recommendations")
 async def get_recommendations(
     ticker: str,
     recommendation_type: str,
     months_back: int = 12
-) -> str:
+) -> Dict[str, Any]:
     
     """Get recommendations or upgrades/downgrades for a given ticker symbol"""
 
@@ -1182,24 +1183,24 @@ async def get_recommendations(
 
     try:
         if company.isin is None:
-            return json.dumps(format_response([], False, f"Company ticker '{ticker}' not found."))
+            return format_response([], False, f"Company ticker '{ticker}' not found.")
 
     except Exception as e:
-        return json.dumps(format_response([], False, f"Error accessing company info for '{ticker}': {e}"))
+        return format_response([], False, f"Error accessing company info for '{ticker}': {e}")
 
     try:
         if recommendation_type == RecommendationType.recommendations:
             recs = company.recommendations
             if recs is None or recs.empty:
-                return json.dumps(format_response([], True, "No recommendations found."))
+                return format_response([], True, "No recommendations found.")
 
             data = recs.reset_index().to_dict(orient="records")
-            return json.dumps(format_response(data))
+            return format_response(data)
 
         elif recommendation_type == RecommendationType.upgrades_downgrades:
             upgrades = company.upgrades_downgrades
             if upgrades is None or upgrades.empty:
-                return json.dumps(format_response([], True, "No upgrades/downgrades found."))
+                return format_response([], True, "No upgrades/downgrades found.")
 
             cutoff_date = pd.Timestamp.now() - pd.DateOffset(months=months_back)
             upgrades = upgrades.reset_index()
@@ -1208,18 +1209,18 @@ async def get_recommendations(
             latest_by_firm = upgrades_sorted.drop_duplicates(subset=["Firm"])
 
             data = latest_by_firm.to_dict(orient="records")
-            return json.dumps(format_response(data))
+            return format_response(data)
 
         else:
-            return json.dumps(format_response([], False, f"Invalid recommendation_type '{recommendation_type}'."))
+            return format_response([], False, f"Invalid recommendation_type '{recommendation_type}'.")
 
     except Exception as e:
-        return json.dumps(format_response([], False, f"Error getting recommendations for '{ticker}': {e}"))
+        return format_response([], False, f"Error getting recommendations for '{ticker}': {e}")
 
 
 
 @mcp.tool("compare_stocks")
-def compare_stocks(symbol1: str, symbol2: str) -> str:
+def compare_stocks(symbol1: str, symbol2: str) -> Dict[str, Any]:
 
     """Compare two stocks"""
     symbol1, symbol2 = symbol1.upper(), symbol2.upper()
@@ -1236,9 +1237,9 @@ def compare_stocks(symbol1: str, symbol2: str) -> str:
             'higher': symbol1 if price1 > price2 else symbol2 if price2 > price1 else 'equal'
         }
         
-        return json.dumps(format_response(comparison))
+        return format_response(comparison)
     except Exception as e:
-        return json.dumps(format_response(None, False, str(e)))
+        return format_response(None, False, str(e))
 
 # Background price update function
 def update_watchlist_prices():
