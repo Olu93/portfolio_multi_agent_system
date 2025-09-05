@@ -2,14 +2,14 @@ import asyncio
 import contextlib
 import logging
 import os
-from typing import Any, AsyncIterable, Literal
+from typing import Any, AsyncIterable, Literal, List
 import click
 from fastapi import FastAPI
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 from langgraph.errors import GraphRecursionError
+from langgraph.graph.state import CompiledStateGraph
 from langchain.chat_models.base import BaseChatModel
-from python_a2a import AgentSkill
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
@@ -21,8 +21,7 @@ from a2a.types import (
 )
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.utils import new_agent_text_message, new_task, new_agent_parts_message
-from a2a.server.events import EventQueue
-from a2a.server.request_handlers import DefaultRequestHandler
+
 from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
 from a2a.server.apps import A2AStarletteApplication
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -30,12 +29,22 @@ from langchain_core.messages import AIMessage, ToolMessage
 import requests
 import uvicorn
 from langchain.chat_models import init_chat_model
+from langchain_core.tools import BaseTool, StructuredTool
 
-from a2a_servers.config_loader import load_agent_config, load_model_config, load_prompt_config
+from a2a_servers.a2a_client import (
+    BaseAgent,
+    BaseAgentExecutor,
+    ChunkMetadata,
+    ChunkResponse,
+)
+from a2a_servers.config_loader import (
+    load_agent_config,
+)
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import InMemorySaver
 import time
 from urllib.parse import urlparse
+from a2a.types import Artifact
 
 
 logger = logging.getLogger(__name__)
@@ -47,42 +56,48 @@ memory = InMemorySaver()
 _registration_cache = {}
 
 # Cache expiration time (in seconds) - how long to trust cached registration status
-CACHE_EXPIRY_SECONDS = int(os.getenv("REGISTRATION_CACHE_EXPIRY", "300"))  # 5 minutes default
+CACHE_EXPIRY_SECONDS = int(
+    os.getenv("REGISTRATION_CACHE_EXPIRY", "300")
+)  # 5 minutes default
+
 
 def _is_cache_valid(cache_entry):
     """Check if a cache entry is still valid based on timestamp."""
     if isinstance(cache_entry, dict):
-        timestamp = cache_entry.get('timestamp', 0)
+        timestamp = cache_entry.get("timestamp", 0)
         return (time.time() - timestamp) < CACHE_EXPIRY_SECONDS
     return False
+
 
 def _get_cached_registration(cache_key):
     """Get cached registration status if it's still valid."""
     cache_entry = _registration_cache.get(cache_key)
     if cache_entry and _is_cache_valid(cache_entry):
-        return cache_entry.get('registered', False)
+        return cache_entry.get("registered", False)
     return None  # Cache expired or doesn't exist
+
 
 def _set_cached_registration(cache_key, registered: bool):
     """Set cached registration status with timestamp."""
     _registration_cache[cache_key] = {
-        'registered': registered,
-        'timestamp': time.time()
+        "registered": registered,
+        "timestamp": time.time(),
     }
+
 
 def _cleanup_expired_cache():
     """Remove expired entries from the registration cache."""
     current_time = time.time()
     expired_keys = []
-    
+
     for key, entry in _registration_cache.items():
         if not _is_cache_valid(entry):
             expired_keys.append(key)
-    
+
     for key in expired_keys:
         del _registration_cache[key]
         logger.debug(f"Removed expired cache entry for {key}")
-    
+
     if expired_keys:
         logger.info(f"Cleaned up {len(expired_keys)} expired cache entries")
 
@@ -90,190 +105,100 @@ def _cleanup_expired_cache():
 class ResponseFormat(BaseModel):
     """Respond to the user in this format."""
 
-    status: Literal['input_required', 'completed', 'error'] = 'input_required'
+    status: Literal["input_required", "completed", "error"] = "input_required"
     message: str
 
 
-class Agent:
+class SubAgent(BaseAgent):
     """CurrencyAgent - a specialized assistant for currency convesions."""
 
-    SUPPORTED_CONTENT_TYPES = ["text", "text/plain", "text/event-stream", "application/json"]
+    SUPPORTED_CONTENT_TYPES = [
+        "text",
+        "text/plain",
+        "text/event-stream",
+        "application/json",
+    ]
 
     FORMAT_INSTRUCTION = (
-        'Set response status to input_required if the user needs to provide more information to complete the request.'
-        'Set response status to error if there is an error while processing the request.'
-        'Set response status to completed if the request is complete.'
+        "Set response status to input_required if the user needs to provide more information to complete the request."
+        "Set response status to error if there is an error while processing the request."
+        "Set response status to completed if the request is complete."
     )
 
-    def __init__(self, name, model, tools, prompt):
-        self.model = model
-        self.tools = tools
-        self.prompt = prompt
 
-        self.graph = create_react_agent(
-            name=name,
+
+
+    async def build_tools(self) -> list[StructuredTool]:
+        tool_config = self.agent_config.get("tools", [])
+        tool_config_dict = {tool["name"]: tool["mcp_server"] for tool in tool_config}
+        for tool in tool_config_dict:
+            if not (
+                "/mcp" in tool_config_dict[tool]["url"]
+                or "/sse" in tool_config_dict[tool]["url"]
+            ):
+                logger.warning(
+                    f"Tool {tool} is not using the correct URL format. Please use the correct URL format. The URL is {tool_config_dict[tool]['url']}"
+                )
+        client = MultiServerMCPClient(tool_config_dict)
+        tools = await client.get_tools()
+        return tools
+
+    async def build_graph(self) -> CompiledStateGraph:
+        return create_react_agent(
+            name=self.name,
             model=self.model,
             tools=self.tools,
             checkpointer=memory,
             prompt=self.prompt,
-            response_format=(self.FORMAT_INSTRUCTION, ResponseFormat),
+            response_format=(self.FORMAT_INSTRUCTION, ChunkResponse),
         )
 
-    async def stream(self, query, context_id) -> AsyncIterable[dict[str, Any]]:
-        inputs = {'messages': [('user', query)]}
-        config = {'configurable': {'thread_id': context_id}}
+    async def stream(
+        self, artifacts: list[Artifact], context_id: str, task_id: str
+    ) -> AsyncIterable[dict[str, Any]]:
+        inputs = {
+            "messages": [
+                ("user", self._extract_parts(artifact)) for artifact in artifacts
+            ]
+        }
+        config = {"configurable": {"thread_id": task_id}}
 
-        async for item in self.graph.astream(inputs, config, stream_mode='values'):
-            message = item['messages'][-1]
+        async for item in self.graph.astream(inputs, config, stream_mode="values"):
+            message = item["messages"][-1]
             if (
                 isinstance(message, AIMessage)
                 and message.tool_calls
                 and len(message.tool_calls) > 0
             ):
-                yield {
-                    'is_task_complete': False,
-                    'require_user_input': False,
-                    'content': 'Processing the request...',
-                }
+                yield ChunkResponse(
+                    status=TaskState.working,
+                    content="Processing the request...",
+                    metadata=ChunkMetadata(
+                        message_type="tool_call", step_number=len(item["messages"])
+                    ),
+                )
             elif isinstance(message, ToolMessage):
-                yield {
-                    'is_task_complete': False,
-                    'require_user_input': False,
-                    'content': 'Executing the tool...',
-                }
+                yield ChunkResponse(
+                    status=TaskState.working,
+                    content="Executing the tool...",
+                    metadata=ChunkMetadata(
+                        message_type="tool_execution", step_number=len(item["messages"])
+                    ),
+                )
 
-        yield self.get_agent_response(config)
+        yield self._get_agent_response(config)
 
-    def get_agent_response(self, config):
+    def _get_agent_response(self, config):
         current_state = self.graph.get_state(config)
-        structured_response = current_state.values.get('structured_response')
-        if structured_response and isinstance(
-            structured_response, ResponseFormat
-        ):
-            if structured_response.status == 'input_required':
-                return {
-                    'is_task_complete': False,
-                    'require_user_input': True,
-                    'content': structured_response.message,
-                }
-            if structured_response.status == 'error':
-                return {
-                    'is_task_complete': False,
-                    'require_user_input': True,
-                    'content': structured_response.message,
-                }
-            if structured_response.status == 'completed':
-                return {
-                    'is_task_complete': True,
-                    'require_user_input': False,
-                    'content': structured_response.message,
-                }
+        structured_response = current_state.values.get("structured_response")
+        if structured_response and isinstance(structured_response, ChunkResponse):
+            return structured_response
 
-        return {
-            'is_task_complete': False,
-            'require_user_input': True,
-            'content': (
-                'We are unable to process your request at the moment. '
-                'Please try again.'
-            ),
-        }
+        return ChunkResponse(
+            status=TaskState.failed,
+            content="We are unable to process your request at the moment. Please try again.",
+        )
 
-    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']
-
-
-
-class BaseAgentExecutor(AgentExecutor):
-    """Base AgentExecutor for LangGraph/LangChain agents."""
-
-    def __init__(
-        self,
-        agent: Agent,
-        status_message: str = "Processing request...",
-        artifact_name: str = "response",
-    ):
-        """Initialize a generic LangGraph agent executor.
-
-        Args:
-            agent: The LangGraph agent instance that implements AgentInterface
-            status_message: Message to display while processing
-            artifact_name: Name for the response artifact
-        """
-        self.agent = agent
-        self.status_message = status_message
-        self.artifact_name = artifact_name
-
-    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
-        query = context.get_user_input()
-        task = context.current_task or new_task(context.message)
-        await event_queue.enqueue_event(task)
-
-        updater = TaskUpdater(event_queue, task.id, task.context_id)
-
-        try:
-            async for item in self.agent.stream(query, task.context_id):
-                is_task_complete = item['is_task_complete']
-                require_user_input = item['require_user_input']
-
-                if not is_task_complete and not require_user_input:
-                    await updater.update_status(
-                        TaskState.working,
-                        new_agent_text_message(
-                            item['content'],
-                            task.context_id,
-                            task.id,
-                        ),
-                    )
-                elif require_user_input:
-                    await updater.update_status(
-                        TaskState.input_required,
-                        new_agent_text_message(
-                            item['content'],
-                            task.context_id,
-                            task.id,
-                        ),
-                        final=True,
-                    )
-                    break
-                else:
-                    await updater.add_artifact(
-                        [Part(root=TextPart(text=item['content']))],
-                        name='conversion_result',
-                    )
-                    await updater.complete()
-                    break
-
-        except GraphRecursionError as e:
-            logger.error(f"Error: {e!s}")
-            all_parts = []
-            for msg in task.history:
-                logger.error(f"Message: {msg!s}")
-                all_parts.extend(msg.parts)
-            all_parts.append(Part(root=TextPart(text=f"Error: {e!s}")))
-
-            await updater.update_status(
-                TaskState.failed,
-                new_agent_parts_message(all_parts, task.context_id, task.id),
-                final=True,
-            )
-        except Exception as e:
-            logger.error(f"Error: {e!s}")
-            await updater.update_status(
-                TaskState.failed,
-                new_agent_text_message(f"Error: {e!s}", task.context_id, task.id),
-                final=True,
-            )
-
-    async def execute_streaming(
-        self, context: RequestContext, event_queue: EventQueue
-    ) -> None:
-        """Execute with streaming - not supported by this agent."""
-        # Since streaming is disabled, we'll just call the regular execute method
-        # and let the framework handle the streaming response
-        await self.execute(context, event_queue)
-
-    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
-        # Implementation for cancelling tasks
-        pass
 
 
 async def create_sub_agent(agent_name: str, url: str):
@@ -281,72 +206,17 @@ async def create_sub_agent(agent_name: str, url: str):
     Create a sub agent for the main agent based on the agents.yml file in which all the agents are registered.
     """
     try:
-
-
-        capabilities = AgentCapabilities(streaming=True, pushNotifications=False)
         agent_config = load_agent_config(agent_name)
-        tool_config = agent_config.get("tools", [])
-        model_config = load_model_config(agent_config.get("model", "default"))	
-        meta_prompt = agent_config.get("meta_prompt", "You are a helpful assistant that can use multiple tools")
-        prompt_config = load_prompt_config(agent_config.get("prompt_file", f"{agent_name}.txt"))
-
-        tool_config_dict = {tool["name"]: tool["mcp_server"] for tool in tool_config}
-
-        # TODO: Add skills from the agent config
-        skills = [
-            AgentSkill(
-                id=tool["name"],
-                name=tool["name"],
-                description=tool["description"],
-                tags=tool["tags"],
-                examples=tool["examples"],
-            ) for tool in tool_config
-        ]
-
-
-        agent_card = AgentCard(
-            name=agent_config["name"],
-            description=agent_config["description"],
-            url=url,
-            # url=agent_config["agent_url"],
-            version="1.0.0",
-            defaultInputModes=Agent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=Agent.SUPPORTED_CONTENT_TYPES,
-            capabilities=capabilities,
-            skills=skills,
-        )
-
-        model = init_chat_model(model_config["name"], **model_config["parameters"], model_provider=model_config["provider"])
-
-
-        for tool in tool_config_dict:
-            if not ("/mcp" in tool_config_dict[tool]["url"] or "/sse" in tool_config_dict[tool]["url"]):
-                logger.warning(f"Tool {tool} is not using the correct URL format. Please use the correct URL format. The URL is {tool_config_dict[tool]['url']}")
-
-        client = MultiServerMCPClient(tool_config_dict)
-        tools = await client.get_tools()
-
-        prompt = f"{meta_prompt}\n\n{prompt_config}"
-
-        agent = Agent(agent_name, model, tools, prompt)
-
-        # Create executor with custom parameters
-        executor = BaseAgentExecutor(
-            agent=agent,
-            status_message="Processing request...",
-            artifact_name="response",
-        )
-        request_handler = DefaultRequestHandler(  
-            agent_executor=executor,  
-            task_store=InMemoryTaskStore()  
-        ) 
-        return A2AStarletteApplication(agent_card=agent_card, http_handler=request_handler)
+        agent = await SubAgent(agent_name, url, agent_config).build()
+        return agent
     except Exception as e:
         logger.error(f"Error: {e!s}")
         raise e
 
 
-async def periodic_registration_check(agent_card: AgentCard, interval_seconds: int = None):
+async def periodic_registration_check(
+    agent_card: AgentCard, interval_seconds: int = None
+):
     """
     Periodically check agent registration status and maintain health.
     This runs as a background task with the following flow:
@@ -356,25 +226,33 @@ async def periodic_registration_check(agent_card: AgentCard, interval_seconds: i
     """
     if interval_seconds is None:
         interval_seconds = int(os.getenv("AGENT_HEARTBEAT_INTERVAL", "30"))
-    
-    logger.info(f"Starting periodic registration check for agent {agent_card.name} with {interval_seconds}s interval")
-    
+
+    logger.info(
+        f"Starting periodic registration check for agent {agent_card.name} with {interval_seconds}s interval"
+    )
+
     while True:
         try:
             await asyncio.sleep(interval_seconds)
-            
+
             # Clean up expired cache entries periodically
             _cleanup_expired_cache()
-            
+
             # Run the registration check and heartbeat in a thread pool since requests is blocking
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, check_and_maintain_registration, agent_card)
-            
+            await loop.run_in_executor(
+                None, check_and_maintain_registration, agent_card
+            )
+
         except asyncio.CancelledError:
-            logger.info(f"Periodic registration check for agent {agent_card.name} cancelled")
+            logger.info(
+                f"Periodic registration check for agent {agent_card.name} cancelled"
+            )
             break
         except Exception as e:
-            logger.error(f"Error in periodic registration check for agent {agent_card.name}: {e}")
+            logger.error(
+                f"Error in periodic registration check for agent {agent_card.name}: {e}"
+            )
             # Continue running even if there's an error
             continue
 
@@ -386,7 +264,9 @@ def check_if_agent_registered(agent_card: AgentCard) -> bool:
     REGISTRY_URL = os.getenv("REGISTRY_URL")
     try:
         # Check if agent is already registered by URL
-        response = requests.post(f"{REGISTRY_URL}/registry/lookup", json={"url": agent_card.url})
+        response = requests.post(
+            f"{REGISTRY_URL}/registry/lookup", json={"url": agent_card.url}
+        )
         if response.status_code == 200:
             logger.info(f"Agent {agent_card.name} is already registered")
             return True
@@ -394,21 +274,24 @@ def check_if_agent_registered(agent_card: AgentCard) -> bool:
             logger.info(f"Agent {agent_card.name} is not registered")
             return False
         else:
-            logger.warning(f"Unexpected response when checking agent registration: {response.status_code}")
+            logger.warning(
+                f"Unexpected response when checking agent registration: {response.status_code}"
+            )
             return False
     except Exception as e:
         logger.error(f"Error checking if agent {agent_card.name} is registered: {e}")
         return False
 
+
 def check_and_maintain_registration(agent_card: AgentCard):
     """
     Unified function to check registration status and maintain agent health.
-    
+
     Flow:
     1. Check if agent is already registered
     2. If not registered, attempt to register
     3. If registered (or newly registered), send heartbeat
-    
+
     This prevents unnecessary repeated registration attempts and only sends
     heartbeats when the agent is actually registered.
     """
@@ -416,92 +299,132 @@ def check_and_maintain_registration(agent_card: AgentCard):
     if not REGISTRY_URL:
         logger.error("REGISTRY_URL environment variable not set")
         return
-    
+
     cache_key = agent_card.url
     cached_registration = _get_cached_registration(cache_key)
-    
+
     try:
         # Step 1: Always check if agent is actually registered (don't trust cache blindly)
         # This ensures we detect when agents are removed from the registry
         is_registered = check_if_agent_registered(agent_card)
-        
+
         # Update cache based on actual registry status
         if is_registered:
             _set_cached_registration(cache_key, True)
-            logger.info(f"Agent {agent_card.name} confirmed as registered in registry {REGISTRY_URL} with agent url {agent_card.url}")
+            logger.info(
+                f"Agent {agent_card.name} confirmed as registered in registry {REGISTRY_URL} with agent url {agent_card.url}"
+            )
         else:
             _set_cached_registration(cache_key, False)
-            logger.info(f"Agent {agent_card.name} not found in registry {REGISTRY_URL} with agent url {agent_card.url}")
-        
+            logger.info(
+                f"Agent {agent_card.name} not found in registry {REGISTRY_URL} with agent url {agent_card.url}"
+            )
+
         if not is_registered:
             # Step 2: Attempt to register if not already registered
-            logger.info(f"Agent {agent_card.name} not found in registry {REGISTRY_URL} with agent url {agent_card.url}, attempting registration...")
+            logger.info(
+                f"Agent {agent_card.name} not found in registry {REGISTRY_URL} with agent url {agent_card.url}, attempting registration..."
+            )
             try:
-                response = requests.post(f"{REGISTRY_URL}/registry/register", json=agent_card.model_dump(mode='python'))
+                response = requests.post(
+                    f"{REGISTRY_URL}/registry/register",
+                    json=agent_card.model_dump(mode="python"),
+                )
                 if response.status_code == 201:
-                    logger.info(f"Agent {agent_card.name} registered successfully in registry {REGISTRY_URL} with agent url {agent_card.url}")
+                    logger.info(
+                        f"Agent {agent_card.name} registered successfully in registry {REGISTRY_URL} with agent url {agent_card.url}"
+                    )
                     is_registered = True
                     # Cache successful registration
                     _set_cached_registration(cache_key, True)
                 else:
-                    logger.error(f"Failed to register agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {response.status_code}")
+                    logger.error(
+                        f"Failed to register agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {response.status_code}"
+                    )
                     return  # Don't send heartbeat if registration failed
             except Exception as e:
-                logger.error(f"Error registering agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {e}")
+                logger.error(
+                    f"Error registering agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {e}"
+                )
                 return  # Don't send heartbeat if registration failed
-        
+
         # Step 3: Send heartbeat only if agent is registered
         if is_registered:
             try:
-                response = requests.post(f"{REGISTRY_URL}/registry/heartbeat", json={"url": agent_card.url})
+                response = requests.post(
+                    f"{REGISTRY_URL}/registry/heartbeat", json={"url": agent_card.url}
+                )
                 if response.status_code == 200:
-                    logger.info(f"Heartbeat sent successfully for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}")
+                    logger.info(
+                        f"Heartbeat sent successfully for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}"
+                    )
                 else:
-                    logger.warning(f"Failed to send heartbeat for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {response.status_code}")
+                    logger.warning(
+                        f"Failed to send heartbeat for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {response.status_code}"
+                    )
                     # If heartbeat fails, the agent might have been removed from registry
                     # Clear the cache to force a re-check next time
                     if response.status_code == 404:
                         _set_cached_registration(cache_key, False)
-                        logger.info(f"Agent {agent_card.name} appears to have been removed from registry, will re-register next cycle")
+                        logger.info(
+                            f"Agent {agent_card.name} appears to have been removed from registry, will re-register next cycle"
+                        )
             except Exception as e:
-                logger.error(f"Error sending heartbeat for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {e}")
+                logger.error(
+                    f"Error sending heartbeat for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {e}"
+                )
         else:
-            logger.warning(f"Agent {agent_card.name} is not registered, skipping heartbeat")
-            
+            logger.warning(
+                f"Agent {agent_card.name} is not registered, skipping heartbeat"
+            )
+
     except Exception as e:
-        logger.error(f"Unexpected error in check_and_maintain_registration for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {e}")
+        logger.error(
+            f"Unexpected error in check_and_maintain_registration for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {e}"
+        )
 
 
 @click.command()
-@click.option("--agent-name", default="web_search_agent", help="Name of the agent to run")
+@click.option(
+    "--agent-name", default="web_search_agent", help="Name of the agent to run"
+)
 def run_agent_server(agent_name: str):
     URL = os.getenv("URL", "http://0.0.0.0:10020")
     HOST = urlparse(URL).hostname
     PORT = int(urlparse(URL).port)
 
-
     async def run_with_background_tasks():
-        starlette_app = await create_sub_agent(agent_name, url=URL)
-        fastapi_app = starlette_app.build()
-        
+        agent = await create_sub_agent(agent_name, url=URL)
+        starlette_app = agent.http_handler
+        agent_card = agent.agent_card
+        fastapi_app = starlette_app
+
         # Add background task for periodic registration
         registration_task = None
-        
+
         @contextlib.asynccontextmanager
         async def lifespan(app: FastAPI):
             nonlocal registration_task
             # Startup
             # Do initial registration attempt and health check
-            logger.info(f"Attempting initial registration for agent {starlette_app.agent_card.name}")
-            await asyncio.get_event_loop().run_in_executor(None, check_and_maintain_registration, starlette_app.agent_card)
-            
+            logger.info(
+                f"Attempting initial registration for agent {agent_card.name}"
+            )
+            await asyncio.get_event_loop().run_in_executor(
+                None, check_and_maintain_registration, agent_card
+            )
+
             # Start the periodic registration task
-            registration_task = asyncio.create_task(periodic_registration_check(starlette_app.agent_card))
+            registration_task = asyncio.create_task(
+                periodic_registration_check(agent_card)
+            )
             interval = os.getenv("AGENT_HEARTBEAT_INTERVAL", "30")
-            logger.info(f"Started periodic registration check for agent {starlette_app.agent_card.name} with {interval}s interval")
-            
+            logger.info(
+                f"Started periodic registration check for agent {agent_card.name} with {interval}s interval"
+            )
+
             yield
-            
+
             # Shutdown
             if registration_task and not registration_task.done():
                 registration_task.cancel()
@@ -509,17 +432,19 @@ def run_agent_server(agent_name: str):
                     await registration_task
                 except asyncio.CancelledError:
                     pass
-                logger.info(f"Stopped periodic registration check for agent {starlette_app.agent_card.name}")
-        
+                logger.info(
+                    f"Stopped periodic registration check for agent {agent_card.name}"
+                )
+
         # Set the lifespan context manager
         fastapi_app.router.lifespan_context = lifespan
-        
+
         return fastapi_app
-    
+
     # Run the async function and get the FastAPI app
     fastapi_app = asyncio.run(run_with_background_tasks())
-    logger.info(f"Access agent at: {URL}") 
-    logger.debug(f"HOST: {HOST}") 
+    logger.info(f"Access agent at: {URL}")
+    logger.debug(f"HOST: {HOST}")
     logger.debug(f"PORT: {PORT}")
 
     uvicorn.run(
