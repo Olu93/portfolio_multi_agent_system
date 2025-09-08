@@ -5,5 +5,8 @@
     "python.terminal.activateEnvironment": true,
     "terminal.integrated.env.linux": {
         "PYTHONPATH": "${workspaceFolder}/backend/src"
-    }
+    },
+    "cursorpyright.analysis.extraPaths": [
+        "./backend/src"
+    ]
 }

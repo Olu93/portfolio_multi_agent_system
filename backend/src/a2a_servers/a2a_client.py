@@ -171,7 +171,7 @@ class A2ASubAgentClient:
                 # yield each chunk as JSON lines (NDJSON)
                 chunk: SendStreamingMessageResponse = chunk
                 result: A2AClientResponse = chunk.root.result
-                logger.info(f"Received message of type: {type(result)}")
+                logger.info(f"{agent_url} - Received message of type: {type(result)}")
                 # if isinstance(result, TaskStatusUpdateEvent) or isinstance(result, Task):
                 #     logger.info(f"Status of task: {result.status}")
                 #     status = result.status.state
@@ -293,7 +293,7 @@ class BaseAgent:
             )
         return ChunkResponse(
             status=TaskState.input_required,
-            content="We are unable to process your request at the moment. Please try again.",
+            content=f"{self.name} is unable to process your request at the moment. Please try again.",
             metadata=ChunkMetadata(message_type="error", error="no_messages", step_number=len(messages)),
         )
 
@@ -304,10 +304,13 @@ class BaseAgent:
         elif isinstance(part.root, DataPart):
             return f'{part.root.kind}: {part.root.data}'
         return f'{part.root.kind}: {part.root.text}'
+    
+    def _format_parts(parts: list[Part]) -> str:
+        return "\n".join([BaseAgent._format_part(p) for p in parts])
         
     @staticmethod
     def _extract_parts(artifact: Artifact):
-        return f"artifact: {artifact.name}" + "\n"  + "\n".join([BaseAgent._format_part(p) for p in artifact.parts])
+        return f"artifact: {artifact.name}" + "\n"  + BaseAgent._format_parts(artifact.parts)
 
     async def _call_execute(self, context: RequestContext, event_queue: EventQueue):
         query = context.get_user_input() or ""

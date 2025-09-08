@@ -103,22 +103,24 @@ async def build_tools_from_registry(
                     if isinstance(result, TaskArtifactUpdateEvent):
                         artifact = result.artifact
                         text = BaseAgent._extract_parts(artifact)
+                        logger.info(f"Received artifact from {card.name}: {text}")
+                        continue
                     elif isinstance(result, TaskStatusUpdateEvent):
                         status = result.status
                         state = status.state
                         timestamp = status.timestamp
-                        text = f'{state} at {timestamp}'
+                        parts = result.status.message.parts
+                        text = f'Received {state} at {timestamp} - From {card.name} : {BaseAgent._format_parts(parts)}'
                     elif isinstance(result, Task):
                         history = result.history
                         last_element = history[-1]
                         element_parts: List[Part] = last_element.parts
-                        first_part = "\n\n".join([f'{p.root.kind}: {p.root.text}' for p in element_parts])
+                        first_part = BaseAgent._format_parts(element_parts)
                         text = first_part
                     else:
-                        text = json.dumps(chunk, ensure_ascii=False)
+                        raise Exception(f"Unknown result type: {type(result)}")
                 except Exception as e:
                     logger.exception("Error processing tool output", e)
-                    text = json.dumps(chunk, ensure_ascii=False)
                 writer({"tool": card.name, "text": text})   # custom stream
                 buf.append(text)
 
@@ -233,14 +235,14 @@ class SupervisorAgent(BaseAgent):
             if isinstance(last, AIMessage) and getattr(last, "tool_calls", None):
                 yield ChunkResponse(
                     status=TaskState.working,
-                    content="Processing the request...",
+                    content=f"Supervisor is calling the tool... {last.tool_calls[0].get('name')}",
                     tool_name=last.tool_calls[0].get("name") if last.tool_calls else None,
                     metadata=ChunkMetadata(message_type="tool_call", step_number=len(messages)),
                 )
             elif isinstance(last, ToolMessage):
                 yield ChunkResponse(
                     status=TaskState.working,
-                    content="Executing the tool...",
+                    content=f"Supervisor executed the tool successfully",
                     metadata=ChunkMetadata(message_type="tool_execution", step_number=len(messages)),
                 )
 

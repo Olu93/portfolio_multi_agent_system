@@ -162,7 +162,7 @@ class SubAgent(BaseAgent):
             ]
         }
         config = {"configurable": {"thread_id": task_id}}
-
+        latest_tool_call = None
         async for item in self.graph.astream(inputs, config, stream_mode="values"):
             message = item["messages"][-1]
             if (
@@ -170,9 +170,10 @@ class SubAgent(BaseAgent):
                 and message.tool_calls
                 and len(message.tool_calls) > 0
             ):
+                latest_tool_call = message.tool_calls[0].get('name')
                 yield ChunkResponse(
                     status=TaskState.working,
-                    content="Processing the request...",
+                    content=f"{self.name} is calling the tool... {latest_tool_call}",
                     metadata=ChunkMetadata(
                         message_type="tool_call", step_number=len(item["messages"])
                     ),
@@ -180,23 +181,20 @@ class SubAgent(BaseAgent):
             elif isinstance(message, ToolMessage):
                 yield ChunkResponse(
                     status=TaskState.working,
-                    content="Executing the tool...",
+                    content=f"{self.name} executed the tool successfully... {latest_tool_call}",
                     metadata=ChunkMetadata(
                         message_type="tool_execution", step_number=len(item["messages"])
                     ),
                 )
 
-        yield self._get_agent_response(config)
-
-    def _get_agent_response(self, config):
         current_state = self.graph.get_state(config)
         structured_response = current_state.values.get("structured_response")
         if structured_response and isinstance(structured_response, ChunkResponse):
-            return structured_response
+            yield structured_response
 
-        return ChunkResponse(
+        yield ChunkResponse(
             status=TaskState.failed,
-            content="We are unable to process your request at the moment. Please try again.",
+            content=f"{self.name} is unable to process your request at the moment. Please try again.",
         )
 
 
