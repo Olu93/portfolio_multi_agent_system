@@ -15,8 +15,12 @@
 ## Next up
 [] User Interface
 [] Add logging to mcp servers 
-[] Change to python SDK agents
-[] Fix double sends
+[x] Change to python SDK agents
+[x] Fix double sends
+[] Put registry background tasks into its seperate module
+[] Make sure the supervisor continuously updates its skills
+[] Make sure supervisor corrects missing info itself
+[] Make sure conversation remains intact throughout context
 
 
 ## Gather TODO's

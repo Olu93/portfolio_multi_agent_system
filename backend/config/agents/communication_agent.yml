@@ -1,5 +1,5 @@
 name: "Communication-Agent"
-description: "A agent that can use multiple communication tools such as email, slack and others"
+description: "An agent that can use multiple communication tools such as email, slack and others"
 agent_url: "http://ohcm_communication_agent:10020"
 tools:
   - name: "Email"
