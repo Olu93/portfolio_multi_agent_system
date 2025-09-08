@@ -94,8 +94,8 @@ services:
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}    
     ports:
-      - "10020:10020"
       - "20002:5678"    # debugpy port for VS Code debugging
+      - "10002:10020"
     volumes:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config
@@ -135,6 +135,7 @@ services:
     # no ports section, internal only
     ports:
       - "20003:5678"    # debugpy port for VS Code debugging
+      - "10003:10020" # agent inspector port for testing
     volumes:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config
@@ -167,7 +168,7 @@ services:
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}      
     ports:
       - "20004:5678"    # debugpy port for VS Code debugging
-      - "11111:10020" # agent inspector port for testing
+      - "10004:10020" # agent inspector port for testing
     volumes:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config
@@ -200,6 +201,7 @@ services:
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}            
     ports:
       - "20005:5678"    # debugpy port for VS Code debugging
+      - "10005:10020" # agent inspector port for testing
     volumes:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config

@@ -22,6 +22,7 @@
 [] Make sure supervisor corrects missing info itself
 [] Make sure conversation remains intact throughout context
 [] Create agent MCP server maybe? Might require dynamically specifying the tools. Not the best idea as state handling might be difficult.
+[] Checkout https://mozilla-ai.github.io/any-agent/cookbook/a2a_as_tool/
 
 
 ## Gather TODO's
