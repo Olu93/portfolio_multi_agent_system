@@ -258,19 +258,19 @@ async def _send_email(
         return error_msg
 
 
-@mcp.tool()
-async def get_server_persona(ctx: Context) -> str:
-    """
-    Get the server persona that the server uses to send emails as. Useful if the client does not specify who to send the email as.
+# @mcp.tool()
+# async def get_server_persona(ctx: Context) -> str:
+#     """
+#     Get the server persona that the server uses to send emails as. Useful if the client does not specify who to send the email as.
     
-    Args:
-        ctx: MCP context for logging
-    """
-    return {
-        "name": "Wall-E 2.0",
-        "from_email": DEFAULT_FROM_EMAIL,
-        "description": "A friendly agent that sends emails on behalf of the user. Uses the default from email address to send mails via SMTP.",
-    }
+#     Args:
+#         ctx: MCP context for logging
+#     """
+#     return {
+#         "name": "Wall-E 2.0",
+#         "from_email": DEFAULT_FROM_EMAIL,
+#         "description": "A friendly agent that sends emails on behalf of the user. Uses the default from email address to send mails via SMTP.",
+#     }
 
 
 @mcp.tool()

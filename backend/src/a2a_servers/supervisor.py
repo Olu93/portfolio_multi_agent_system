@@ -193,7 +193,7 @@ async def build_tools_from_registry(
                 return ""
             # return f"Tool Ouput: {'\n'.join(buf)} \n Task ID: {result.task_id}"
             new_task_id = result.task_id if result.status.state == TaskState.input_required else None
-            return {"messages": [("tool", "### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END")], "task_id": new_task_id}
+            return {"messages": "### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END", "task_id": new_task_id}
             # return ToolMessage(content="### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END", tool_call_id=result.task_id)
 
 

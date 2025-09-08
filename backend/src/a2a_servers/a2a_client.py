@@ -154,7 +154,8 @@ class A2ASubAgentClient:
             )
             logger.info(f'A2AClient initialized. Connecting to {agent_url}')
             for message in messages:
-                payload = new_agent_text_message(message["content"], context_id=context_id, task_id=task_id) if task_id else new_agent_text_message(message["content"], context_id=context_id)
+                # payload = new_agent_text_message(message["content"], context_id=context_id, task_id=task_id) if task_id else new_agent_text_message(message["content"], context_id=context_id)
+                payload =  new_agent_text_message(message["content"], context_id=context_id)
                 msg_params = MessageSendParams(message=payload)
                 
                 # request =  SendMessageRequest(
@@ -331,7 +332,7 @@ class BaseAgent:
         try:
             await updater.start_work(new_agent_text_message(f"{self.name} is working…", task.context_id, task.id))
 
-            async for item in self.stream(artifacts, context_id=task.context_id, task_id=self.sub_task_id):
+            async for item in self.stream(artifacts, context_id=task.context_id, task_id=task.id):
                 msg = item.content  # guaranteed non-empty per your contract
                 logger.info(f"{self.name} received message: {msg}")
 
