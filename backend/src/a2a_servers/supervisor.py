@@ -40,7 +40,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
-from a2a_servers.a2a_client import A2ASubAgentClient, BaseAgent, BaseAgentExecutor, ChunkResponse, ChunkMetadata
+from a2a_servers.a2a_client import A2ASubAgentClient, BaseAgent, BaseAgentExecutor, ChunkResponse, ChunkMetadata, ToolEmission
 from a2a_servers.config_loader import (
     load_agent_config,
     load_model_config,
@@ -103,30 +103,47 @@ async def build_tools_from_registry(
                 try:
                     result = chunk
                     if isinstance(result, TaskArtifactUpdateEvent):
+                        state = TaskState.working
                         timestamp = datetime.now(timezone.utc).isoformat()
                         artifact = result.artifact
                         text = BaseAgent._extract_parts(artifact)
-                        emission = {"tool": card.name, "text": f"{timestamp} - Received Artifact from {card.name}"}
+                        emission = ToolEmission(
+                            tool=card.name, 
+                            text=f"{timestamp} - Received Artifact from {card.name}", 
+                            state=state,
+                            timestamp=timestamp,
+                            )
                         buf.append(f"Agent {card.name} received artifact at {timestamp}:\n{text}")
                         logger.info(emission)
-                        writer(emission)
+                        writer(emission.model_dump(mode="python"))
                     elif isinstance(result, TaskStatusUpdateEvent):
                         status = result.status
                         state = status.state
                         timestamp = status.timestamp
                         parts = result.status.message.parts
-                        emission = {"tool": card.name, "text": f'{timestamp} - Received Status {state} from {card.name}: {BaseAgent._format_parts(parts)}'}
+                        emission = ToolEmission(
+                            tool=card.name, 
+                            text=f'{timestamp} - Received Status {state} from {card.name}: {BaseAgent._format_parts(parts)}', 
+                            state=state, 
+                            timestamp=timestamp,
+                            )
                         logger.info(emission)
-                        writer(emission)
+                        writer(emission.model_dump(mode="python"))
                     elif isinstance(result, Task):
+                        state = TaskState.working
                         timestamp = datetime.now(timezone.utc).isoformat()
                         history = result.history
                         last_element = history[-1]
                         element_parts: List[Part] = last_element.parts
                         first_part = BaseAgent._format_parts(element_parts)
-                        emission = {"tool": card.name, "text": f'{timestamp} - Received Task from {card.name}: {first_part}'}
+                        emission = ToolEmission(
+                            tool=card.name, 
+                            text=f'{timestamp} - Received Task from {card.name}: {first_part}', 
+                            state=state, 
+                            timestamp=timestamp,
+                            )
                         logger.info(emission)
-                        writer(emission)
+                        writer(emission.model_dump(mode="python"))
                     else:
                         raise Exception(f"Unknown result type: {type(result)}")
                 except Exception as e:
@@ -225,15 +242,26 @@ class SupervisorAgent(BaseAgent):
 
             if mode == "custom":
                 # your tool's writer(...) payload
-                text = payload.get("text", "")
-                tool = payload.get("tool")
-                response = ChunkResponse(
-                    status=TaskState.working,
-                    content=text,
-                    tool_name=tool,
-                    metadata=ChunkMetadata(message_type="tool_stream", step_number=0),
-                )
-                yield response
+                if isinstance(payload, ToolEmission):
+                    emission = payload
+                    response = ChunkResponse(
+                        status=TaskState.working,
+                        content=emission.text,
+                        tool_name=emission.tool,
+                        metadata=ChunkMetadata(message_type="tool_stream", step_number=0),
+                    )
+                    yield response
+                elif isinstance(payload, dict):
+                    emission = payload
+                    response = ChunkResponse(
+                        status=TaskState.working,
+                        content=emission["text"],
+                        tool_name=emission["tool"],
+                        metadata=ChunkMetadata(message_type="tool_stream", step_number=0),
+                    )
+                    yield response
+                else:
+                    raise Exception(f"Unknown payload type: {type(payload)}")
                 continue
 
             # mode == "values" → graph state snapshot
@@ -243,17 +271,18 @@ class SupervisorAgent(BaseAgent):
                 continue
             last = messages[-1]
             if isinstance(last, AIMessage) and getattr(last, "tool_calls", None):
+                last_tool_call = last.tool_calls[0]
                 response = ChunkResponse(
                     status=TaskState.working,
-                    content=f"{self.name} is calling the tool... {last.tool_calls[0].get('name')}",
-                    tool_name=last.tool_calls[0].get("name") if last.tool_calls else None,
+                    content=f"{self.name} is calling the tool... {last_tool_call.get('name')}",
+                    tool_name=last_tool_call.get("name") if last_tool_call else None,
                     metadata=ChunkMetadata(message_type="tool_call", step_number=len(messages)),
                 )
                 yield response
             elif isinstance(last, ToolMessage):
                 response = ChunkResponse(
                     status=TaskState.working,
-                    content=f"{self.name} executed the tool successfully",
+                    content=f"{self.name} executed the tool successfully... {last.name}",
                     metadata=ChunkMetadata(message_type="tool_execution", step_number=len(messages)),
                 )
                 yield response
