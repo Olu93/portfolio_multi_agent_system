@@ -98,7 +98,6 @@ async def build_tools_from_registry(
             writer = get_stream_writer()
 
             buf: list[str] = []
-            text = ""
             async for chunk in client.async_send_message_streaming(card.url, content, context_id, task_id):
                 try:
                     result = chunk
@@ -113,20 +112,50 @@ async def build_tools_from_registry(
                             state=state,
                             timestamp=timestamp,
                             )
-                        buf.append(f"Agent {card.name} received artifact at {timestamp}:\n{text}")
+                        buf.append(f"Agent received artifact at {timestamp}:\n{text}")
                         logger.info(emission)
                         writer(emission)
-                    elif isinstance(result, TaskStatusUpdateEvent):
+                    elif isinstance(result, TaskStatusUpdateEvent) and result.status.state not in [TaskState.working, TaskState.input_required]:
                         status = result.status
                         state = status.state
                         timestamp = status.timestamp
                         parts = result.status.message.parts
+                        text = BaseAgent._format_parts(parts)
                         emission = ToolEmission(
                             tool=card.name, 
-                            text=f'{timestamp} - Received Status {state} from {card.name}: {BaseAgent._format_parts(parts)}', 
+                            text=f'{timestamp} - Received Status {state} from {card.name}: {text}', 
                             state=state, 
                             timestamp=timestamp,
                             )
+                        logger.info(emission)
+                        writer(emission)
+                    elif isinstance(result, TaskStatusUpdateEvent) and result.status.state == TaskState.working:
+                        status = result.status
+                        state = status.state
+                        timestamp = status.timestamp
+                        parts = result.status.message.parts
+                        text = BaseAgent._format_parts(parts)
+                        emission = ToolEmission(
+                            tool=card.name, 
+                            text=f'{timestamp} - Received Status {state} from {card.name}: {text}', 
+                            state=state, 
+                            timestamp=timestamp,
+                            )
+                        logger.info(emission)
+                        writer(emission)
+                    elif isinstance(result, TaskStatusUpdateEvent) and result.status.state == TaskState.input_required:
+                        status = result.status
+                        state = status.state
+                        timestamp = status.timestamp
+                        parts = result.status.message.parts
+                        text = BaseAgent._format_parts(parts)
+                        emission = ToolEmission(
+                            tool=card.name, 
+                            text=f'{timestamp} - Received Status {state} from {card.name}: {text}', 
+                            state=state, 
+                            timestamp=timestamp,
+                            )
+                        buf.append(f"Agent asks for input at {timestamp}:\n{text}")
                         logger.info(emission)
                         writer(emission)
                     elif isinstance(result, Task):
@@ -211,7 +240,8 @@ class SupervisorAgent(BaseAgent):
 
     async def build_graph(self) -> CompiledStateGraph:
         def model_execution(state: State) -> State:
-            message: AIMessage = self.model.invoke(state["messages"])
+            messages = state["messages"]
+            message: AIMessage = self.model.invoke(messages)
             # force only one tool call per step
             if message.tool_calls and len(message.tool_calls) > 1:
                 message.tool_calls = [message.tool_calls[0]]
@@ -251,15 +281,6 @@ class SupervisorAgent(BaseAgent):
                         metadata=ChunkMetadata(message_type="tool_stream", step_number=0),
                     )
                     yield response
-                # elif isinstance(payload, dict):
-                #     emission = payload
-                #     response = ChunkResponse(
-                #         status=TaskState.working,
-                #         content=emission["text"],
-                #         tool_name=emission["tool"],
-                #         metadata=ChunkMetadata(message_type="tool_stream", step_number=0),
-                #     )
-                #     yield response
                 else:
                     raise Exception(f"Unknown payload type: {type(payload)}")
                 continue
@@ -283,6 +304,7 @@ class SupervisorAgent(BaseAgent):
                 response = ChunkResponse(
                     status=TaskState.working,
                     content=f"{self.name} executed the tool successfully... {last.name}",
+                    tool_name=last.name,
                     metadata=ChunkMetadata(message_type="tool_execution", step_number=len(messages)),
                 )
                 yield response

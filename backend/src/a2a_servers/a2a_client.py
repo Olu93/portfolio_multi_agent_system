@@ -352,7 +352,7 @@ class BaseAgent:
                 if item.status == TaskState.completed:
                     logger.info(f"{self.name} completed task {task.id}")
                     parts_buffer.append(Part(root=TextPart(text=msg)))
-                    logger.info(f"{self.name} adding artifact to context {task.context_id} - task{task.id}")
+                    logger.info(f"{self.name} adding artifact to context {task.context_id} - task {task.id}")
                     await updater.add_artifact(parts_buffer, name="Agent-Response")
                     await updater.complete(new_agent_text_message(f"{self.name} persisted artifact to context {task.context_id} - task{task.id}", task.context_id, task.id))
                     break

@@ -21,6 +21,7 @@
 [] Make sure the supervisor continuously updates its skills
 [] Make sure supervisor corrects missing info itself
 [] Make sure conversation remains intact throughout context
+[] Create agent MCP server maybe? Might require dynamically specifying the tools. Not the best idea as state handling might be difficult.
 
 
 ## Gather TODO's
