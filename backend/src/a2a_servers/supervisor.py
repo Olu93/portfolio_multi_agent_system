@@ -115,7 +115,7 @@ async def build_tools_from_registry(
                             )
                         buf.append(f"Agent {card.name} received artifact at {timestamp}:\n{text}")
                         logger.info(emission)
-                        writer(emission.model_dump(mode="python"))
+                        writer(emission)
                     elif isinstance(result, TaskStatusUpdateEvent):
                         status = result.status
                         state = status.state
@@ -128,7 +128,7 @@ async def build_tools_from_registry(
                             timestamp=timestamp,
                             )
                         logger.info(emission)
-                        writer(emission.model_dump(mode="python"))
+                        writer(emission)
                     elif isinstance(result, Task):
                         state = TaskState.working
                         timestamp = datetime.now(timezone.utc).isoformat()
@@ -143,7 +143,7 @@ async def build_tools_from_registry(
                             timestamp=timestamp,
                             )
                         logger.info(emission)
-                        writer(emission.model_dump(mode="python"))
+                        writer(emission)
                     else:
                         raise Exception(f"Unknown result type: {type(result)}")
                 except Exception as e:
@@ -251,15 +251,15 @@ class SupervisorAgent(BaseAgent):
                         metadata=ChunkMetadata(message_type="tool_stream", step_number=0),
                     )
                     yield response
-                elif isinstance(payload, dict):
-                    emission = payload
-                    response = ChunkResponse(
-                        status=TaskState.working,
-                        content=emission["text"],
-                        tool_name=emission["tool"],
-                        metadata=ChunkMetadata(message_type="tool_stream", step_number=0),
-                    )
-                    yield response
+                # elif isinstance(payload, dict):
+                #     emission = payload
+                #     response = ChunkResponse(
+                #         status=TaskState.working,
+                #         content=emission["text"],
+                #         tool_name=emission["tool"],
+                #         metadata=ChunkMetadata(message_type="tool_stream", step_number=0),
+                #     )
+                #     yield response
                 else:
                     raise Exception(f"Unknown payload type: {type(payload)}")
                 continue
