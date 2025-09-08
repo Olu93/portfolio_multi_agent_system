@@ -61,6 +61,11 @@ class ChunkResponse(BaseModel):
     tool_name: Optional[str] = None
     metadata: ChunkMetadata = Field(..., example={"message_type": "tool_stream", "step_number": 0})
 
+class ToolEmission(BaseModel):
+    tool: str = Field(..., description="The name of the tool that emitted the event", example="tool_name")
+    text: str = Field(..., description="The text of the event", example="text")
+    state: TaskState = Field(..., description="The status of the event", example=TaskState.working)
+    timestamp: str = Field(..., description="The timestamp of the event in iso format", example="2025-09-08T02:45:12.964656+00:00")
 
 
 class A2ASubAgentClient:
@@ -250,7 +255,11 @@ class BaseAgent:
         return self.agent_card
     
     async def build_prompt(self) -> str:
-        meta_prompt = self.agent_config.get("meta_prompt", "You are a helpful assistant that can use multiple tools")
+        meta_prompt = self.agent_config.get("meta_prompt", 
+        (
+            f"You are {self.name} - A helpful agent that can use multiple tools"
+            "Make sure to ask for more input if not enough information was provided to execute the task."        
+        ))
         prompt_config = load_prompt_config(self.agent_config.get("prompt_file", f"{self.name}.txt"))
         self.prompt = f"{meta_prompt}\n\n{prompt_config}"
         return self.prompt
