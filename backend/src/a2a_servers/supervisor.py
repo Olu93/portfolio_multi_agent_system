@@ -1,6 +1,7 @@
 # supervisor.py — LLM-routed supervisor using LangGraph + A2A Registry discovery (a2a package)
 # ChatGPT convo: https://chatgpt.com/share/68b8361d-6b24-8009-ba31-aaaebdc96cc9
 import asyncio
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -97,32 +98,40 @@ async def build_tools_from_registry(
             writer = get_stream_writer()
 
             buf: list[str] = []
+            text = ""
             async for chunk in client.async_send_message_streaming(card.url, content, context_id, task_id):
                 try:
                     result = chunk
                     if isinstance(result, TaskArtifactUpdateEvent):
+                        timestamp = datetime.now(timezone.utc).isoformat()
                         artifact = result.artifact
                         text = BaseAgent._extract_parts(artifact)
-                        logger.info(f"Received artifact from {card.name}: {text}")
-                        continue
+                        emission = {"tool": card.name, "text": f"{timestamp} - Received Artifact from {card.name}"}
+                        buf.append(f"Agent {card.name} received artifact at {timestamp}:\n{text}")
+                        logger.info(emission)
+                        writer(emission)
                     elif isinstance(result, TaskStatusUpdateEvent):
                         status = result.status
                         state = status.state
                         timestamp = status.timestamp
                         parts = result.status.message.parts
-                        text = f'Received {state} at {timestamp} - From {card.name} : {BaseAgent._format_parts(parts)}'
+                        emission = {"tool": card.name, "text": f'{timestamp} - Received Status {state} from {card.name}: {BaseAgent._format_parts(parts)}'}
+                        logger.info(emission)
+                        writer(emission)
                     elif isinstance(result, Task):
+                        timestamp = datetime.now(timezone.utc).isoformat()
                         history = result.history
                         last_element = history[-1]
                         element_parts: List[Part] = last_element.parts
                         first_part = BaseAgent._format_parts(element_parts)
-                        text = first_part
+                        emission = {"tool": card.name, "text": f'{timestamp} - Received Task from {card.name}: {first_part}'}
+                        logger.info(emission)
+                        writer(emission)
                     else:
                         raise Exception(f"Unknown result type: {type(result)}")
                 except Exception as e:
                     logger.exception("Error processing tool output", e)
-                writer({"tool": card.name, "text": text})   # custom stream
-                buf.append(text)
+                   # custom stream
 
             # ToolNode will turn this into ToolMessage.content for the next model step
             if not buf:
@@ -218,12 +227,13 @@ class SupervisorAgent(BaseAgent):
                 # your tool's writer(...) payload
                 text = payload.get("text", "")
                 tool = payload.get("tool")
-                yield ChunkResponse(
+                response = ChunkResponse(
                     status=TaskState.working,
                     content=text,
                     tool_name=tool,
                     metadata=ChunkMetadata(message_type="tool_stream", step_number=0),
                 )
+                yield response
                 continue
 
             # mode == "values" → graph state snapshot
@@ -233,21 +243,23 @@ class SupervisorAgent(BaseAgent):
                 continue
             last = messages[-1]
             if isinstance(last, AIMessage) and getattr(last, "tool_calls", None):
-                yield ChunkResponse(
+                response = ChunkResponse(
                     status=TaskState.working,
-                    content=f"Supervisor is calling the tool... {last.tool_calls[0].get('name')}",
+                    content=f"{self.name} is calling the tool... {last.tool_calls[0].get('name')}",
                     tool_name=last.tool_calls[0].get("name") if last.tool_calls else None,
                     metadata=ChunkMetadata(message_type="tool_call", step_number=len(messages)),
                 )
+                yield response
             elif isinstance(last, ToolMessage):
-                yield ChunkResponse(
+                response = ChunkResponse(
                     status=TaskState.working,
-                    content=f"Supervisor executed the tool successfully",
+                    content=f"{self.name} executed the tool successfully",
                     metadata=ChunkMetadata(message_type="tool_execution", step_number=len(messages)),
                 )
-
+                yield response
         # final state
-        yield self._get_agent_response(config)
+        response = self._get_agent_response(config)
+        yield response
 
 
 

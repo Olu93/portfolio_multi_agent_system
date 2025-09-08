@@ -322,15 +322,15 @@ class BaseAgent:
         parts_buffer: list[Part] = []
 
         try:
-            await updater.start_work(new_agent_text_message("Working…", task.context_id, task.id))
+            await updater.start_work(new_agent_text_message(f"{self.name} is working…", task.context_id, task.id))
 
             async for item in self.stream(artifacts, context_id=task.context_id, task_id=task.id):
                 msg = item.content  # guaranteed non-empty per your contract
 
                 if item.status == TaskState.working:
-                    await updater.update_status(TaskState.working,
+                    await updater.update_status(item.status,
                                                 new_agent_text_message(msg, task.context_id, task.id))
-                    parts_buffer.append(Part(root=TextPart(text=msg)))
+                    # parts_buffer.append(Part(root=TextPart(text=msg)))
                     continue
 
                 if item.status == TaskState.input_required:
@@ -340,7 +340,7 @@ class BaseAgent:
                 if item.status == TaskState.completed:
                     parts_buffer.append(Part(root=TextPart(text=msg)))
                     await updater.add_artifact(parts_buffer, name="Agent-Response")
-                    await updater.complete(new_agent_text_message(msg, task.context_id, task.id))
+                    await updater.complete(new_agent_text_message(f"{self.name} persisted artifact to context {task.context_id} - task{task.id}", task.context_id, task.id))
                     break
 
                 if item.status == TaskState.failed:
