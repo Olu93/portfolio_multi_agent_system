@@ -326,6 +326,7 @@ class BaseAgent:
 
             async for item in self.stream(artifacts, context_id=task.context_id, task_id=task.id):
                 msg = item.content  # guaranteed non-empty per your contract
+                logger.info(f"{self.name} received message: {msg}")
 
                 if item.status == TaskState.working:
                     await updater.update_status(item.status,
@@ -338,27 +339,33 @@ class BaseAgent:
                     break
 
                 if item.status == TaskState.completed:
+                    logger.info(f"{self.name} completed task {task.id}")
                     parts_buffer.append(Part(root=TextPart(text=msg)))
                     await updater.add_artifact(parts_buffer, name="Agent-Response")
                     await updater.complete(new_agent_text_message(f"{self.name} persisted artifact to context {task.context_id} - task{task.id}", task.context_id, task.id))
                     break
 
                 if item.status == TaskState.failed:
+                    logger.info(f"{self.name} failed task {task.id}")
                     await updater.failed(new_agent_text_message(f"Error: {msg}", task.context_id, task.id))
                     break
 
                 if item.status == TaskState.canceled:
+                    logger.info(f"{self.name} canceled task {task.id}")
                     await updater.cancel(new_agent_text_message(msg, task.context_id, task.id))
                     break
 
                 if item.status == TaskState.rejected:
+                    logger.info(f"{self.name} rejected task {task.id}")
                     await updater.reject(new_agent_text_message(msg, task.context_id, task.id))
                     break
 
                 # Unknown: surface and buffer
+                logger.info(f"{self.name} unknown status {item.status} for task {task.id}")
                 await updater.update_status(item.status, new_agent_text_message(msg, task.context_id, task.id))
                 parts_buffer.append(Part(root=TextPart(text=msg)))
         except GraphRecursionError as e:
+            logger.error(f"{self.name} graph recursion error for task {task.id}")
             logger.error(f"Error: {e!s}")
             all_parts = []
             for msg in task.history:
@@ -372,7 +379,7 @@ class BaseAgent:
                 final=True,
             )
         except Exception as e:
-            logger.exception("Supervisor execute failed")
+            logger.exception(f"{self.name} execute failed for task {task.id}")
             await updater.failed(new_agent_text_message(f"Error: {e!s}", task.context_id, task.id))    
 
 # --- Agent Executor ----------------------------------------------------------
