@@ -329,55 +329,57 @@ class BaseAgent:
                 logger.info(f"{self.name} received message: {msg}")
 
                 if item.status == TaskState.working:
+                    logger.info(f"{self.name} working for task {task.id}")
                     await updater.update_status(item.status,
                                                 new_agent_text_message(msg, task.context_id, task.id))
                     # parts_buffer.append(Part(root=TextPart(text=msg)))
                     continue
 
                 if item.status == TaskState.input_required:
+                    logger.info(f"{self.name} input required for task {task.id}")
                     await updater.requires_input(new_agent_text_message(msg, task.context_id, task.id))
                     break
 
                 if item.status == TaskState.completed:
                     logger.info(f"{self.name} completed task {task.id}")
                     parts_buffer.append(Part(root=TextPart(text=msg)))
+                    logger.info(f"{self.name} adding artifact to context {task.context_id} - task{task.id}")
                     await updater.add_artifact(parts_buffer, name="Agent-Response")
                     await updater.complete(new_agent_text_message(f"{self.name} persisted artifact to context {task.context_id} - task{task.id}", task.context_id, task.id))
                     break
 
                 if item.status == TaskState.failed:
                     logger.info(f"{self.name} failed task {task.id}")
+                    logger.error(f"{self.name} failed task {task.id} with error: {msg}")
                     await updater.failed(new_agent_text_message(f"Error: {msg}", task.context_id, task.id))
                     break
 
                 if item.status == TaskState.canceled:
                     logger.info(f"{self.name} canceled task {task.id}")
+                    logger.error(f"{self.name} canceled task {task.id} with error: {msg}")
                     await updater.cancel(new_agent_text_message(msg, task.context_id, task.id))
                     break
 
                 if item.status == TaskState.rejected:
                     logger.info(f"{self.name} rejected task {task.id}")
+                    logger.error(f"{self.name} rejected task {task.id} with error: {msg}")
                     await updater.reject(new_agent_text_message(msg, task.context_id, task.id))
                     break
 
                 # Unknown: surface and buffer
                 logger.info(f"{self.name} unknown status {item.status} for task {task.id}")
+                logger.error(f"{self.name} unknown status {item.status} for task {task.id} with error: {msg}")
                 await updater.update_status(item.status, new_agent_text_message(msg, task.context_id, task.id))
                 parts_buffer.append(Part(root=TextPart(text=msg)))
         except GraphRecursionError as e:
-            logger.error(f"{self.name} graph recursion error for task {task.id}")
-            logger.error(f"Error: {e!s}")
+            logger.exception(f"{self.name} graph recursion error for task {task.id}")
             all_parts = []
             for msg in task.history:
                 logger.error(f"Message: {msg!s}")
                 all_parts.extend(msg.parts)
             all_parts.append(Part(root=TextPart(text=f"Error: {e!s}")))
 
-            await updater.update_status(
-                TaskState.failed,
-                new_agent_parts_message(all_parts, task.context_id, task.id),
-                final=True,
-            )
+            await updater.failed(new_agent_text_message(f"Error: {e!s}", task.context_id, task.id))
         except Exception as e:
             logger.exception(f"{self.name} execute failed for task {task.id}")
             await updater.failed(new_agent_text_message(f"Error: {e!s}", task.context_id, task.id))    
