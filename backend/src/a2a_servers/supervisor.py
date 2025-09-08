@@ -62,10 +62,16 @@ logger = logging.getLogger(__name__)
 # --- State -------------------------------------------------------------------
 memory = InMemorySaver()
 
+def add_task_id(old_task_id: str = None, new_task_id: str = None) -> str:
+    return new_task_id if new_task_id else old_task_id
+
 class State(TypedDict):
     messages: Annotated[list, add_messages]
+    task_id: Annotated[str|None, add_task_id] = None
 
-
+class ToolInput(BaseModel):
+    content: str
+    task_id: str = Field(default=None)
 
 # --- Registry client ---------------------------------------------------------
 REGISTRY_URL = os.getenv("REGISTRY_URL", "http://registry:8000")
@@ -89,16 +95,18 @@ async def build_tools_from_registry(
         return re.sub(r"[^a-zA-Z0-9_]+", "_", s).strip("_").lower()
 
     def _create_tool_for_card(card: AgentCard) -> StructuredTool:
-        async def tool_impl(content: str, config: RunnableConfig):
+        async def tool_impl(content: State, config: RunnableConfig):
             cfg = config.get("configurable", {}) if isinstance(config, dict) else {}
             context_id = cfg.get("thread_id")
-            task_id = cfg.get("task_id")
+            # task_id = cfg.get("task_id")
+            task_id = content.get("task_id")
+            messages = content.get("messages")
 
             client = A2ASubAgentClient()
             writer = get_stream_writer()
 
             buf: list[str] = []
-            async for chunk in client.async_send_message_streaming(card.url, content, context_id, task_id):
+            async for chunk in client.async_send_message_streaming(card.url, messages, context_id, task_id):
                 try:
                     result = chunk
                     if isinstance(result, TaskArtifactUpdateEvent):
@@ -183,8 +191,9 @@ async def build_tools_from_registry(
             # ToolNode will turn this into ToolMessage.content for the next model step
             if not buf:
                 return ""
-            # return "### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END"
-            return {"output": "### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END", "task_id": result.task_id}
+            # return f"Tool Ouput: {'\n'.join(buf)} \n Task ID: {result.task_id}"
+            new_task_id = result.task_id if result.status.state == TaskState.input_required else None
+            return {"messages": [("tool", "### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END")], "task_id": new_task_id}
             # return ToolMessage(content="### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END", tool_call_id=result.task_id)
 
 
@@ -205,6 +214,7 @@ async def build_tools_from_registry(
             coroutine=tool_impl,
             name=tool_name,
             description=summary,
+            # response_format='content_and_artifact',
         )
         return t, tool_config
 
@@ -244,19 +254,22 @@ class SupervisorAgent(BaseAgent):
     async def build_graph(self) -> CompiledStateGraph:
         def model_execution(state: State) -> State:
             messages = state["messages"]
+            task_id = state.get("task_id")
             message: AIMessage = self.model.invoke(messages)
             # force only one tool call per step
             if message.tool_calls and len(message.tool_calls) > 1:
                 message.tool_calls = [message.tool_calls[0]]
-            return {"messages": [message]}
+            return {"messages": [message], "task_id": task_id if task_id else None}
 
         gb = StateGraph(State)
         gb.add_node("model", model_execution)
         gb.add_node("tools", ToolNode(self.tools))
+        # gb.add_node("state_updater", )
 
         gb.add_edge(START, "model")
         # decide dynamically: tool call → tools, else → END
         gb.add_conditional_edges("model", tools_condition)
+
         gb.add_edge("tools", "model")
 
         return gb.compile(checkpointer=memory, name=self.name)

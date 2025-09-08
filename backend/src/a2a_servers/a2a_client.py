@@ -43,7 +43,7 @@ from starlette.responses import JSONResponse
 from starlette.requests import Request
 from a2a_servers.config_loader import load_prompt_config, load_model_config
 from a2a.types import MessageSendParams, SendStreamingMessageRequest, SendStreamingMessageResponse, Task, Message, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TaskStatus, TaskState
-
+from langchain_core.messages import BaseMessage
 logger = logging.getLogger(__name__)
 
 
@@ -78,7 +78,7 @@ class A2ASubAgentClient:
         ] = {}  # Cache for agent metadata
         self.default_timeout = default_timeout
 
-    async def async_send_message_streaming(self, agent_url: str, message: str, context_id: str, task_id: str) -> AsyncIterable[A2AClientResponse]:
+    async def async_send_message_streaming(self, agent_url: str, messages: list[BaseMessage], context_id: str, task_id: str) -> AsyncIterable[A2AClientResponse]:
         """Send a message following the official A2A SDK pattern."""
 
 
@@ -153,32 +153,32 @@ class A2ASubAgentClient:
                 httpx_client=httpx_client, agent_card=final_agent_card_to_use
             )
             logger.info(f'A2AClient initialized. Connecting to {agent_url}')
+            for message in messages:
+                payload = new_agent_text_message(message["content"], context_id=context_id, task_id=task_id) if task_id else new_agent_text_message(message["content"], context_id=context_id)
+                msg_params = MessageSendParams(message=payload)
+                
+                # request =  SendMessageRequest(
+                #     id=str(uuid4()), params=msg_params
+                # )
 
-            payload = new_agent_text_message(message, context_id=context_id, task_id=task_id) if task_id else new_agent_text_message(message, context_id=context_id)
-            msg_params = MessageSendParams(message=payload)
-            
-            # request =  SendMessageRequest(
-            #     id=str(uuid4()), params=msg_params
-            # )
+                # response = await client.send_message(request)
+                # print(response.model_dump(mode='json', exclude_none=True))
 
-            # response = await client.send_message(request)
-            # print(response.model_dump(mode='json', exclude_none=True))
+                streaming_request = SendStreamingMessageRequest(
+                    id=str(uuid4()), params=msg_params
+                )
 
-            streaming_request = SendStreamingMessageRequest(
-                id=str(uuid4()), params=msg_params
-            )
+                stream_response = client.send_message_streaming(streaming_request)
 
-            stream_response = client.send_message_streaming(streaming_request)
+                # async for chunk in stream_response:
+                #     yield chunk.model_dump(mode='python', exclude_none=True)
 
-            # async for chunk in stream_response:
-            #     yield chunk.model_dump(mode='python', exclude_none=True)
-
-            async for chunk in stream_response:
-                # yield each chunk as JSON lines (NDJSON)
-                chunk: SendStreamingMessageResponse = chunk
-                result: A2AClientResponse = chunk.root.result
-                logger.info(f"{agent_url} - Received message of type: {type(result)}")
-                yield result
+                async for chunk in stream_response:
+                    # yield each chunk as JSON lines (NDJSON)
+                    chunk: SendStreamingMessageResponse = chunk
+                    result: A2AClientResponse = chunk.root.result
+                    logger.info(f"{agent_url} - Received message of type: {type(result)}")
+                    yield result
 
 
 class BaseAgent:
