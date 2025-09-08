@@ -258,6 +258,20 @@ async def _send_email(
         return error_msg
 
 
+@mcp.tool()
+async def get_server_persona(ctx: Context) -> str:
+    """
+    Get the server persona that the server uses to send emails as. Useful if the client does not specify who to send the email as.
+    
+    Args:
+        ctx: MCP context for logging
+    """
+    return {
+        "name": "Wall-E 2.0",
+        "from_email": DEFAULT_FROM_EMAIL,
+        "description": "A friendly agent that sends emails on behalf of the user. Uses the default from email address to send mails via SMTP.",
+    }
+
 
 @mcp.tool()
 async def send_email(
@@ -265,7 +279,7 @@ async def send_email(
     subject: str,
     body: str,
     body_type: str = "plain",
-    from_email: Optional[str] = None,
+    # from_email: Optional[str] = None,
     cc_emails: Optional[List[str]] = None,
     bcc_emails: Optional[List[str]] = None,
     attachments: Optional[List[Dict[str, str]]] = None,
@@ -279,7 +293,6 @@ async def send_email(
         subject: Email subject line
         body: Email body content
         body_type: Type of body content ("plain" or "html")
-        from_email: Sender email address (optional, uses default if not specified)
         cc_emails: List of CC recipient email addresses (optional)
         bcc_emails: List of BCC recipient email addresses (optional)
         attachments: List of attachment dictionaries with keys: file_path, filename (optional), content_type (optional)
@@ -290,12 +303,13 @@ async def send_email(
         subject=subject,
         body=body,
         body_type=body_type,
-        from_email=from_email,
+        # from_email=from_email,
         cc_emails=cc_emails,
         bcc_emails=bcc_emails,
         attachments=attachments,
         ctx=ctx
     )
+
 
 
 @mcp.tool()
@@ -327,7 +341,7 @@ async def send_html_email(
     to_emails: List[str],
     subject: str,
     html_body: str,
-    from_email: Optional[str] = None,
+    # from_email: Optional[str] = None,
     attachments: Optional[List[Dict[str, str]]] = None,
     ctx: Context = None
 ) -> str:
@@ -338,7 +352,6 @@ async def send_html_email(
         to_emails: List of recipient email addresses
         subject: Email subject line
         html_body: HTML formatted email body
-        from_email: Sender email address (optional)
         attachments: List of attachment dictionaries
         ctx: MCP context for logging
     """
@@ -347,7 +360,7 @@ async def send_html_email(
         subject=subject,
         body=html_body,
         body_type="html",
-        from_email=from_email,
+        # from_email=from_email,
         attachments=attachments,
         ctx=ctx
     )
