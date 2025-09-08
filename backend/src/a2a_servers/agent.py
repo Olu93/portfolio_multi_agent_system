@@ -161,7 +161,7 @@ class SubAgent(BaseAgent):
                 ("user", self._extract_parts(artifact)) for artifact in artifacts
             ]
         }
-        config = {"configurable": {"thread_id": task_id}}
+        config = {"configurable": {"thread_id": context_id}}
         latest_tool_call = None
         async for item in self.graph.astream(inputs, config, stream_mode="values"):
             message = item["messages"][-1]
@@ -174,6 +174,7 @@ class SubAgent(BaseAgent):
                 yield ChunkResponse(
                     status=TaskState.working,
                     content=f"{self.name} is calling the tool... {latest_tool_call}",
+                    tool_name=latest_tool_call,
                     metadata=ChunkMetadata(
                         message_type="tool_call", step_number=len(item["messages"])
                     ),
@@ -182,6 +183,7 @@ class SubAgent(BaseAgent):
                 yield ChunkResponse(
                     status=TaskState.working,
                     content=f"{self.name} executed the tool successfully... {latest_tool_call}",
+                    tool_name=latest_tool_call,
                     metadata=ChunkMetadata(
                         message_type="tool_execution", step_number=len(item["messages"])
                     ),
@@ -191,11 +193,13 @@ class SubAgent(BaseAgent):
         structured_response = current_state.values.get("structured_response")
         if structured_response and isinstance(structured_response, ChunkResponse):
             yield structured_response
-
-        yield ChunkResponse(
-            status=TaskState.failed,
-            content=f"{self.name} is unable to process your request at the moment. Please try again.",
-        )
+        else:
+            yield ChunkResponse(
+                status=TaskState.failed,
+                content=f"{self.name} is unable to process your request at the moment. Please try again.",
+                tool_name=None,
+                metadata=ChunkMetadata(message_type="error", error="no_messages", step_number=len(item["messages"])),
+            )
 
 
 

@@ -54,12 +54,13 @@ class ChunkMetadata(BaseModel):
     message_type: str = Field("UNKNOWN", example="tool_stream")
     step_number: int = Field(0, example=0)
     error: Optional[str] = None
+    sub_task_id: str = None
 
 class ChunkResponse(BaseModel):
     status: TaskState = Field(..., example=TaskState.working)
     content: str
     tool_name: Optional[str] = None
-    metadata: ChunkMetadata = Field(..., example={"message_type": "tool_stream", "step_number": 0})
+    metadata: ChunkMetadata = Field(..., example={"message_type": "tool_stream", "step_number": 0, "sub_task_id": "123"})
 
 class ToolEmission(BaseModel):
     tool: str = Field(..., description="The name of the tool that emitted the event", example="tool_name")
@@ -153,7 +154,7 @@ class A2ASubAgentClient:
             )
             logger.info(f'A2AClient initialized. Connecting to {agent_url}')
 
-            payload = new_agent_text_message(message, context_id=context_id)
+            payload = new_agent_text_message(message, context_id=context_id, task_id=task_id) if task_id else new_agent_text_message(message, context_id=context_id)
             msg_params = MessageSendParams(message=payload)
             
             # request =  SendMessageRequest(
@@ -177,13 +178,6 @@ class A2ASubAgentClient:
                 chunk: SendStreamingMessageResponse = chunk
                 result: A2AClientResponse = chunk.root.result
                 logger.info(f"{agent_url} - Received message of type: {type(result)}")
-                # if isinstance(result, TaskStatusUpdateEvent) or isinstance(result, Task):
-                #     logger.info(f"Status of task: {result.status}")
-                #     status = result.status.state
-                # else:
-                #     logger.error(f"Unknown result type: {type(result)}")
-                #     status = TaskState.unknown
-                # chunk_normalized =ChatResponse(response=result, conversation_id=context_id, status=status)
                 yield result
 
 
@@ -204,6 +198,7 @@ class BaseAgent:
         self.name = name
         self.url = url
         self.agent_config = agent_config
+        self.sub_task_id = None
 
     async def build(self):
         self.prompt = await self.build_prompt()
@@ -298,11 +293,13 @@ class BaseAgent:
             return ChunkResponse(
                 status=TaskState.completed,
                 content=text,
+                tool_name=None,
                 metadata=ChunkMetadata(message_type="final_response", step_number=len(messages)),
             )
         return ChunkResponse(
             status=TaskState.input_required,
             content=f"{self.name} is unable to process your request at the moment. Please try again.",
+            tool_name=None,
             metadata=ChunkMetadata(message_type="error", error="no_messages", step_number=len(messages)),
         )
 
@@ -326,6 +323,7 @@ class BaseAgent:
         task = context.current_task or new_task(context.message)
         artifacts: list[Artifact] = (task.artifacts or []) + [Artifact(name="User-Input", parts=[Part(root=TextPart(text=query))], artifact_id=str(uuid4()))]
         await event_queue.enqueue_event(task)
+        # event_queue
         updater = TaskUpdater(event_queue, context_id=task.context_id, task_id=task.id)
 
         parts_buffer: list[Part] = []
@@ -333,7 +331,7 @@ class BaseAgent:
         try:
             await updater.start_work(new_agent_text_message(f"{self.name} is working…", task.context_id, task.id))
 
-            async for item in self.stream(artifacts, context_id=task.context_id, task_id=task.id):
+            async for item in self.stream(artifacts, context_id=task.context_id, task_id=self.sub_task_id):
                 msg = item.content  # guaranteed non-empty per your contract
                 logger.info(f"{self.name} received message: {msg}")
 
@@ -346,7 +344,8 @@ class BaseAgent:
 
                 if item.status == TaskState.input_required:
                     logger.info(f"{self.name} input required for task {task.id}")
-                    await updater.requires_input(new_agent_text_message(msg, task.context_id, task.id))
+                    self.sub_task_id = item.metadata.sub_task_id
+                    await updater.requires_input(new_agent_text_message(msg, task.context_id, task.id), True)
                     break
 
                 if item.status == TaskState.completed:

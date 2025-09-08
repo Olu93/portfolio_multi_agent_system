@@ -145,6 +145,7 @@ async def build_tools_from_registry(
                         writer(emission)
                     elif isinstance(result, TaskStatusUpdateEvent) and result.status.state == TaskState.input_required:
                         status = result.status
+                        # sub_task_id = result.root.
                         state = status.state
                         timestamp = status.timestamp
                         parts = result.status.message.parts
@@ -182,7 +183,9 @@ async def build_tools_from_registry(
             # ToolNode will turn this into ToolMessage.content for the next model step
             if not buf:
                 return ""
-            return "### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END"
+            # return "### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END"
+            return {"output": "### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END", "task_id": result.task_id}
+            # return ToolMessage(content="### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END", tool_call_id=result.task_id)
 
 
         tool_name = _safe_name(card.name) or _safe_name(card.url)
