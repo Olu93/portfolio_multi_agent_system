@@ -8,7 +8,7 @@ import os
 import re
 from urllib.parse import urlparse
 import uuid
-from typing import Annotated, Any, Dict, Optional, List, AsyncIterable, TypedDict
+from typing import Annotated, Any, Dict, Literal, Optional, List, AsyncIterable, TypedDict, Union
 
 import click
 import httpx
@@ -29,7 +29,7 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.server.apps import A2AStarletteApplication
 
-from langchain_core.messages import AIMessage, ToolMessage, BaseMessage
+from langchain_core.messages import AIMessage, AnyMessage, ToolMessage, BaseMessage
 from langchain.chat_models import init_chat_model
 
 from langgraph.graph.message import add_messages
@@ -56,32 +56,29 @@ from starlette.responses import JSONResponse
 from starlette.requests import Request
 import uvicorn
 
+httpx_client = httpx.AsyncClient(timeout=10) 
 
 logger = logging.getLogger(__name__)
 
 # --- State -------------------------------------------------------------------
 memory = InMemorySaver()
 
-def add_task_id(old_task_id: str = None, new_task_id: str = None) -> str:
-    return new_task_id if new_task_id else old_task_id
+def keep_latest(old: str|None, new: str|None) -> str|None:
+    return new if new is not None else old
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
-    task_id: Annotated[str|None, add_task_id] = None
-
-class ToolInput(BaseModel):
-    content: str
-    task_id: str = Field(default=None)
+    task_id: Annotated[str|None, keep_latest]
 
 # --- Registry client ---------------------------------------------------------
 REGISTRY_URL = os.getenv("REGISTRY_URL", "http://registry:8000")
 
-async def fetch_agents() -> List[AgentCard]:
+async def fetch_agents(httpx_client: httpx.AsyncClient) -> List[AgentCard]:
     logger.info(f"Fetching agents from registry at {REGISTRY_URL}")
-    async with httpx.AsyncClient(timeout=10) as s:
-        r = await s.get(f"{REGISTRY_URL}/registry/agents")
-        r.raise_for_status()
-        return [AgentCard(**a) for a in r.json()]
+    # async with httpx_client as s:
+    r = await httpx_client.get(f"{REGISTRY_URL}/registry/agents")
+    r.raise_for_status()
+    return [AgentCard(**a) for a in r.json()]
 
 # --- Tool factory from AgentCards -------------------------------------------
 async def build_tools_from_registry(
@@ -94,19 +91,19 @@ async def build_tools_from_registry(
     def _safe_name(s: str) -> str:
         return re.sub(r"[^a-zA-Z0-9_]+", "_", s).strip("_").lower()
 
-    def _create_tool_for_card(card: AgentCard) -> StructuredTool:
+    def _create_tool_for_card(card: AgentCard, a2a_client: A2ASubAgentClient) -> StructuredTool:
         async def tool_impl(content: State, config: RunnableConfig):
             cfg = config.get("configurable", {}) if isinstance(config, dict) else {}
             context_id = cfg.get("thread_id")
-            # task_id = cfg.get("task_id")
             task_id = content.get("task_id")
-            messages = content.get("messages")
+            # msg = content.get("messages")[0]["content"]
+            msg = content.get("messages")[-1]["content"]
 
-            client = A2ASubAgentClient()
             writer = get_stream_writer()
 
             buf: list[str] = []
-            async for chunk in client.async_send_message_streaming(card.url, messages, context_id, task_id):
+            async for chunk in a2a_client.stream(card.url, msg, context_id, task_id):
+            # async for chunk in client.async_send_message_streaming(card.url, msg, context_id, None):
                 try:
                     result = chunk
                     if isinstance(result, TaskArtifactUpdateEvent):
@@ -193,7 +190,8 @@ async def build_tools_from_registry(
                 return ""
             # return f"Tool Ouput: {'\n'.join(buf)} \n Task ID: {result.task_id}"
             new_task_id = result.task_id if result.status.state == TaskState.input_required else None
-            return {"messages": "### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END", "task_id": new_task_id}
+            return {"messages": ["### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END"], "task_id": new_task_id}
+            # return "### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END"
             # return ToolMessage(content="### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END", tool_call_id=result.task_id)
 
 
@@ -218,7 +216,9 @@ async def build_tools_from_registry(
         )
         return t, tool_config
 
-    cards = await fetch_agents()
+
+    a2a_client = A2ASubAgentClient(httpx_client=httpx_client)
+    cards = await fetch_agents(httpx_client)
     if allow_urls:
         cards = [c for c in cards if c.url in allow_urls]
     if allow_caps:
@@ -227,7 +227,7 @@ async def build_tools_from_registry(
     tools: List[StructuredTool] = []
     tool_configs: List[dict] = []
     for card in cards:
-        tool, tool_config = _create_tool_for_card(card)
+        tool, tool_config = _create_tool_for_card(card, a2a_client)
         tools.append(tool)
         tool_configs.append(tool_config)
 
@@ -252,6 +252,25 @@ class SupervisorAgent(BaseAgent):
         return tools
 
     async def build_graph(self) -> CompiledStateGraph:
+
+        # def tools_condition(
+        #     state: Union[list[AnyMessage], dict[str, Any], BaseModel],
+        #     messages_key: str = "messages",
+        # ) -> Literal["tools", "__end__"]:
+            
+        #     if isinstance(state, list):
+        #         ai_message = state[-1]
+        #     elif isinstance(state, dict) and (messages := state.get(messages_key, [])):
+        #         ai_message = messages[-1]
+        #     elif messages := getattr(state, messages_key, []):
+        #         ai_message = messages[-1]
+        #     else:
+        #         raise ValueError(f"No messages found in input state to tool_edge: {state}")
+        #     if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
+        #         return "tools"
+        #     return "__end__"
+
+
         def model_execution(state: State) -> State:
             messages = state["messages"]
             task_id = state.get("task_id")
@@ -259,7 +278,7 @@ class SupervisorAgent(BaseAgent):
             # force only one tool call per step
             if message.tool_calls and len(message.tool_calls) > 1:
                 message.tool_calls = [message.tool_calls[0]]
-            return {"messages": [message], "task_id": task_id if task_id else None}
+            return {"messages": [message], "task_id": task_id}
 
         gb = StateGraph(State)
         gb.add_node("model", model_execution)

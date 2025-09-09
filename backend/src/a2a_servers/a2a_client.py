@@ -1,6 +1,7 @@
+import asyncio
 import logging
 
-from typing import Any, Optional, AsyncIterable
+from typing import Any, AsyncIterator, Optional, AsyncIterable, Callable
 from abc import abstractmethod
 from uuid import uuid4
 
@@ -51,10 +52,9 @@ logger = logging.getLogger(__name__)
 A2AClientResponse = Task | Message | TaskStatusUpdateEvent | TaskArtifactUpdateEvent
 
 class ChunkMetadata(BaseModel):
-    message_type: str = Field("UNKNOWN", example="tool_stream")
+    message_type: str = Field("message", example="tool_stream")
     step_number: int = Field(0, example=0)
     error: Optional[str] = None
-    sub_task_id: str = None
 
 class ChunkResponse(BaseModel):
     status: TaskState = Field(..., example=TaskState.working)
@@ -69,117 +69,93 @@ class ToolEmission(BaseModel):
     timestamp: str = Field(..., description="The timestamp of the event in iso format", example="2025-09-08T02:45:12.964656+00:00")
 
 
+AuthHeaderCb = Callable[[str], dict[str, str]]
+
 class A2ASubAgentClient:
-    """A2A Simple to call A2A servers."""
+    """Lightweight A2A client with pooled HTTP, card caching, and streaming."""
 
-    def __init__(self, default_timeout: float = 240.0):
-        self._agent_info_cache: dict[
-            str, dict[str, Any] | None
-        ] = {}  # Cache for agent metadata
+    def __init__(
+        self,
+        default_timeout: float = 240.0,
+        auth_header_cb: Optional[AuthHeaderCb] = None,
+        httpx_client: Optional[httpx.AsyncClient] = None,
+    ) -> None:
         self.default_timeout = default_timeout
-
-    async def async_send_message_streaming(self, agent_url: str, messages: list[BaseMessage], context_id: str, task_id: str) -> AsyncIterable[A2AClientResponse]:
-        """Send a message following the official A2A SDK pattern."""
-
-
-        # Configure httpx client with timeout
-        timeout_config = httpx.Timeout(
-            timeout=self.default_timeout,
-            connect=10.0,
-            read=self.default_timeout,
-            write=10.0,
-            pool=5.0,
+        self._card_cache: dict[str, AgentCard] = {}
+        self._auth_header_cb = auth_header_cb
+        self._own_client = httpx_client is None
+        self._httpx = httpx_client or httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                timeout=default_timeout, connect=10.0, read=default_timeout, write=10.0, pool=5.0
+            )
         )
 
-        async with httpx.AsyncClient(timeout=timeout_config) as httpx_client:
-            resolver = A2ACardResolver(
-                httpx_client=httpx_client,
-                base_url=agent_url,
-                agent_card_path=AGENT_CARD_WELL_KNOWN_PATH,
-            )
-            logger.info(
-                f'Attempting to fetch public agent card from: {agent_url}{AGENT_CARD_WELL_KNOWN_PATH}'
-            )
-            _public_card = (
-                await resolver.get_agent_card()
-            )  # Fetches from default public path
-            logger.info('Successfully fetched public agent card:')
-            logger.info(
-                _public_card.model_dump_json(indent=2, exclude_none=True)
-            )
-            final_agent_card_to_use = _public_card
-            logger.info(
-                '\nUsing PUBLIC agent card for client initialization (default).'
-            )      
-            if _public_card.supports_authenticated_extended_card:
-                try:
-                    logger.info(
-                        f'\nPublic card supports authenticated extended card. Attempting to fetch from: {agent_url}{EXTENDED_AGENT_CARD_PATH}'
-                    )
-                    auth_headers_dict = {
-                        'Authorization': 'Bearer dummy-token-for-extended-card'
-                    }
-                    _extended_card = await resolver.get_agent_card(
-                        relative_card_path=EXTENDED_AGENT_CARD_PATH,
-                        http_kwargs={'headers': auth_headers_dict},
-                    )
-                    logger.info(
-                        'Successfully fetched authenticated extended agent card:'
-                    )
-                    logger.info(
-                        _extended_card.model_dump_json(
-                            indent=2, exclude_none=True
+    async def aclose(self) -> None:
+        if self._own_client:
+            await self._httpx.aclose()
+
+    async def _resolve_card(self, agent_url: str) -> AgentCard:
+        if agent_url in self._card_cache:
+            return self._card_cache[agent_url]
+
+        resolver = A2ACardResolver(
+            httpx_client=self._httpx, base_url=agent_url, agent_card_path=AGENT_CARD_WELL_KNOWN_PATH
+        )
+
+        # minimal retry on transient network hiccups
+        last_err: Optional[Exception] = None
+        for attempt in range(2):
+            try:
+                public_card: AgentCard = await resolver.get_agent_card()
+                logger.info("Fetched public agent card for %s", agent_url)
+
+                final = public_card
+                if getattr(public_card, "supports_authenticated_extended_card", False) and self._auth_header_cb:
+                    try:
+                        headers = self._auth_header_cb(agent_url)
+                        extended = await resolver.get_agent_card(
+                            relative_card_path=EXTENDED_AGENT_CARD_PATH, http_kwargs={"headers": headers}
                         )
-                    )
-                    final_agent_card_to_use = (
-                        _extended_card  # Update to use the extended card
-                    )
-                    logger.info(
-                        '\nUsing AUTHENTICATED EXTENDED agent card for client initialization.'
-                    )
-                except Exception as e_extended:
-                    logger.warning(
-                        f'Failed to fetch extended agent card: {e_extended}. Will proceed with public card.',
-                        exc_info=True,
-                    )
-            elif (
-                _public_card
-            ):  # supports_authenticated_extended_card is False or None
-                logger.info(
-                    '\nPublic card does not indicate support for an extended card. Using public card.'
-                )                  
+                        logger.info("Fetched extended agent card for %s", agent_url)
+                        final = extended
+                    except Exception as e_ext:
+                        logger.warning("Extended card fetch failed (%s); using public.", e_ext, exc_info=True)
 
-            client = A2AClient(
-                httpx_client=httpx_client, agent_card=final_agent_card_to_use
-            )
-            logger.info(f'A2AClient initialized. Connecting to {agent_url}')
-            for message in messages:
-                # payload = new_agent_text_message(message["content"], context_id=context_id, task_id=task_id) if task_id else new_agent_text_message(message["content"], context_id=context_id)
-                payload =  new_agent_text_message(message["content"], context_id=context_id)
-                msg_params = MessageSendParams(message=payload)
-                
-                # request =  SendMessageRequest(
-                #     id=str(uuid4()), params=msg_params
-                # )
+                self._card_cache[agent_url] = final
+                return final
+            except Exception as e:
+                last_err = e
+                await asyncio.sleep(0.3)
 
-                # response = await client.send_message(request)
-                # print(response.model_dump(mode='json', exclude_none=True))
+        assert last_err
+        raise last_err
 
-                streaming_request = SendStreamingMessageRequest(
-                    id=str(uuid4()), params=msg_params
-                )
+    async def stream(
+        self,
+        agent_url: str,
+        msg: str,
+        context_id: str,
+        task_id: Optional[str] = None,
+    ) -> AsyncIterator[Any]:
+        """Yield A2AClientResponse chunks."""
+        card = await self._resolve_card(agent_url)
+        client = A2AClient(httpx_client=self._httpx, agent_card=card)
 
-                stream_response = client.send_message_streaming(streaming_request)
+        payload = new_agent_text_message(msg, context_id=context_id, task_id=task_id)
+        req = SendStreamingMessageRequest(id=str(uuid4()), params=MessageSendParams(message=payload))
 
-                # async for chunk in stream_response:
-                #     yield chunk.model_dump(mode='python', exclude_none=True)
+        stream = client.send_message_streaming(req)
 
-                async for chunk in stream_response:
-                    # yield each chunk as JSON lines (NDJSON)
-                    chunk: SendStreamingMessageResponse = chunk
-                    result: A2AClientResponse = chunk.root.result
-                    logger.info(f"{agent_url} - Received message of type: {type(result)}")
-                    yield result
+        try:
+            async for chunk in stream:
+                # chunk is SendStreamingMessageResponse -> yield the result object
+                result = chunk.root.result  # type: ignore[attr-defined]
+                # keep logging cheap; remove if noisy
+                logger.debug("%s: got %s", agent_url, type(result).__name__)
+                yield result
+        except asyncio.CancelledError as e:
+            logger.info("Stream cancelled for %s", agent_url)
+            raise e
 
 
 class BaseAgent:
@@ -322,64 +298,52 @@ class BaseAgent:
     async def _call_execute(self, context: RequestContext, event_queue: EventQueue):
         query = context.get_user_input() or ""
         task = context.current_task or new_task(context.message)
-        artifacts: list[Artifact] = (task.artifacts or []) + [Artifact(name="User-Input", parts=[Part(root=TextPart(text=query))], artifact_id=str(uuid4()))]
-        await event_queue.enqueue_event(task)
-        # event_queue
+
+        is_resume = context.current_task is not None  # paused task being resumed
+
+        # Enqueue ONLY for new tasks (resume uses a fresh EventQueue but no enqueue)
+        if not is_resume:
+            await event_queue.enqueue_event(task)
+
         updater = TaskUpdater(event_queue, context_id=task.context_id, task_id=task.id)
 
-        parts_buffer: list[Part] = []
+        # (Optional) persist the new user input as artifact
+        user_art = Artifact(
+            name="User-Input",
+            parts=[Part(root=TextPart(text=query))],
+            artifact_id=str(uuid4()),
+        )
+        await updater.add_artifact(user_art.parts, name=user_art.name, artifact_id=user_art.artifact_id)
 
         try:
             await updater.start_work(new_agent_text_message(f"{self.name} is working…", task.context_id, task.id))
 
-            async for item in self.stream(artifacts, context_id=task.context_id, task_id=task.id):
-                msg = item.content  # guaranteed non-empty per your contract
-                logger.info(f"{self.name} received message: {msg}")
+            async for item in self.stream([user_art], context_id=task.context_id, task_id=task.id):
+                msg = item.content
 
                 if item.status == TaskState.working:
-                    logger.info(f"{self.name} working for task {task.id}")
-                    await updater.update_status(item.status,
-                                                new_agent_text_message(msg, task.context_id, task.id))
-                    # parts_buffer.append(Part(root=TextPart(text=msg)))
+                    await updater.update_status(TaskState.working, new_agent_text_message(msg, task.context_id, task.id))
                     continue
 
                 if item.status == TaskState.input_required:
-                    logger.info(f"{self.name} input required for task {task.id}")
-                    self.sub_task_id = item.metadata.sub_task_id
+                    await updater.add_artifact([Part(root=TextPart(text=msg))], name="Agent-Response")
                     await updater.requires_input(new_agent_text_message(msg, task.context_id, task.id), True)
                     break
 
                 if item.status == TaskState.completed:
-                    logger.info(f"{self.name} completed task {task.id}")
-                    parts_buffer.append(Part(root=TextPart(text=msg)))
-                    logger.info(f"{self.name} adding artifact to context {task.context_id} - task {task.id}")
-                    await updater.add_artifact(parts_buffer, name="Agent-Response")
-                    await updater.complete(new_agent_text_message(f"{self.name} persisted artifact to context {task.context_id} - task{task.id}", task.context_id, task.id))
+                    await updater.add_artifact([Part(root=TextPart(text=msg))], name="Agent-Response")
+                    await updater.complete(new_agent_text_message(msg, task.context_id, task.id))
                     break
 
                 if item.status == TaskState.failed:
-                    logger.info(f"{self.name} failed task {task.id}")
-                    logger.error(f"{self.name} failed task {task.id} with error: {msg}")
-                    await updater.failed(new_agent_text_message(f"Error: {msg}", task.context_id, task.id))
-                    break
-
+                    await updater.failed(new_agent_text_message(f"Error: {msg}", task.context_id, task.id)); break
                 if item.status == TaskState.canceled:
-                    logger.info(f"{self.name} canceled task {task.id}")
-                    logger.error(f"{self.name} canceled task {task.id} with error: {msg}")
-                    await updater.cancel(new_agent_text_message(msg, task.context_id, task.id))
-                    break
-
+                    await updater.cancel(new_agent_text_message(msg, task.context_id, task.id)); break
                 if item.status == TaskState.rejected:
-                    logger.info(f"{self.name} rejected task {task.id}")
-                    logger.error(f"{self.name} rejected task {task.id} with error: {msg}")
-                    await updater.reject(new_agent_text_message(msg, task.context_id, task.id))
-                    break
+                    await updater.reject(new_agent_text_message(msg, task.context_id, task.id)); break
 
-                # Unknown: surface and buffer
-                logger.info(f"{self.name} unknown status {item.status} for task {task.id}")
-                logger.error(f"{self.name} unknown status {item.status} for task {task.id} with error: {msg}")
                 await updater.update_status(item.status, new_agent_text_message(msg, task.context_id, task.id))
-                parts_buffer.append(Part(root=TextPart(text=msg)))
+
         except GraphRecursionError as e:
             logger.exception(f"{self.name} graph recursion error for task {task.id}")
             all_parts = []
@@ -387,11 +351,11 @@ class BaseAgent:
                 logger.error(f"Message: {msg!s}")
                 all_parts.extend(msg.parts)
             all_parts.append(Part(root=TextPart(text=f"Error: {e!s}")))
-
             await updater.failed(new_agent_text_message(f"Error: {e!s}", task.context_id, task.id))
         except Exception as e:
             logger.exception(f"{self.name} execute failed for task {task.id}")
-            await updater.failed(new_agent_text_message(f"Error: {e!s}", task.context_id, task.id))    
+            await updater.failed(new_agent_text_message(f"Error: {e!s}", task.context_id, task.id))
+        
 
 # --- Agent Executor ----------------------------------------------------------
 class BaseAgentExecutor(AgentExecutor):
