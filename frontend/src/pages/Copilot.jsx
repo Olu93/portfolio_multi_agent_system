@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Typography,
@@ -25,6 +25,12 @@ import MenuIcon from "@mui/icons-material/Menu";
 import axios from "axios";
 import Markdown from "react-markdown";
 import { ChatInterfaceBanner } from "../components/CombinedInterfaceBanners";
+import { v4 as uuidv4 } from "uuid";
+// import ndjson from "ndjson";
+import ndjson from 'fetch-ndjson';
+
+
+const BASE_URL = import.meta.env.VITE_AGENT_URL;
 
 const StyledContainer = styled(Box)(({ theme }) => ({
   display: "flex",
@@ -73,90 +79,92 @@ const ChatUI = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
+  const [contextId, setContextId] = useState("");
+  const [taskId, setTaskId] = useState("");
   const isMobile = useMediaQuery("(max-width:600px)");
+  useEffect(() => {
+    setContextId(uuidv4());
+    setTaskId(uuidv4());
+  }, []);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
   };
 
-  // const handleMessageSend = async () => {
-  //   if (message.trim()) {
-  //     const userMessage = {
-  //       id: messages.length + 1,
-  //       text: message,
-  //       isOwn: true,
-  //       timestamp: new Date().toLocaleTimeString(),
-  //     };
-  //     setMessages([...messages, userMessage]);
-  //     setMessage("");
+  const handleMessageSend = async () => {
+    if (message.trim()) {
+      const userMessage = {
+        id: messages.length + 1,
+        text: message,
+        isOwn: true,
+        timestamp: new Date().toLocaleTimeString(),
+      };
+      setMessages([...messages, userMessage]);
+      setMessage("");
 
-  //     try {
-  //       const response = await fetch("http://127.0.0.1:8000/pitchdeck/ask", {
-  //         method: "POST",
-  //         headers: { "Content-Type": "application/json" },
-  //         body: JSON.stringify({
-  //           query: message,
-  //           history: messages.map(
-  //             (msg) => `${msg.isOwn ? "User" : "AI"}:${msg.text}`
-  //           ),
-  //         }),
-  //       });
+      try {
+        const response = await fetch(`${BASE_URL}/chat/stream`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: message,
+            context_id: contextId,
+            task_id: taskId,
+          }),
+        });
 
-  //       if (!response.body) {
-  //         throw new Error(
-  //           "ReadableStream is not supported in this environment."
-  //         );
-  //       }
+        if (!response.body) {
+          throw new Error(
+            "ReadableStream is not supported in this environment."
+          );
+        }
 
-  //       const reader = response.body.getReader();
-  //       const decoder = new TextDecoder("utf-8");
-  //       let result = "";
+        const reader = response.body.getReader();
 
-  //       // Add a placeholder message for the bot's response
-  //       setMessages((prevMessages) => [
-  //         ...prevMessages,
-  //         {
-  //           id: prevMessages.length + 2,
-  //           text: "",
-  //           isOwn: false,
-  //           timestamp: new Date().toLocaleTimeString(),
-  //         }, //Placeholder
-  //       ]);
-  //       let messageIndex = messages.length + 1;
+        
+        const readerLock = ndjson(reader);
+        let result = "";
 
-  //       while (true) {
-  //         const { done, value } = await reader.read();
-  //         if (done) break;
-  //         result += decoder.decode(value, { stream: true });
+        // Add a placeholder message for the bot's response
+        setMessages((prevMessages) => [
+          ...prevMessages,
+          {
+            id: prevMessages.length + 2,
+            text: "",
+            isOwn: false,
+            timestamp: new Date().toLocaleTimeString(),
+          }, //Placeholder
+        ]);
+        let messageIndex = messages.length + 1;
 
-  //         // Update the LAST message in the array
-  //         setMessages((prevMessages) => {
-  //           const updatedMessages = [...prevMessages];
-  //           updatedMessages[messageIndex] = {
-  //             ...updatedMessages[messageIndex],
-  //             text: result,
-  //           };
-  //           return updatedMessages;
-  //         });
-  //       }
-  //     } catch (error) {
-  //       console.error("Error sending message:", error);
-  //       // Handle error, e.g., by updating the last message with an error message
-  //       setMessages((prevMessages) => {
-  //         const updatedMessages = [...prevMessages];
-  //         updatedMessages[updatedMessages.length - 1] = {
-  //           ...updatedMessages[updatedMessages.length - 1],
-  //           text: "Error fetching response.",
-  //         };
-  //         return updatedMessages;
-  //       });
-  //     }
-  //   }
-  // };
+        while (true) {
+          const { value,done } = await readerLock.next();
+          if (done) break;
+          const jsonResponse = value;
 
-
-  const handleMessageSend2 = async () => {
-    // Function placeholder for future implementation
+          // Update the LAST message in the array
+          setMessages((prevMessages) => {
+            const updatedMessages = [...prevMessages];
+            updatedMessages[messageIndex] = {
+              ...updatedMessages[messageIndex],
+              text: jsonResponse.response,
+            };
+            return updatedMessages;
+          });
+        }
+      } catch (error) {
+        console.error("Error sending message:", error);
+        // Handle error, e.g., by updating the last message with an error message
+        setMessages((prevMessages) => {
+          const updatedMessages = [...prevMessages];
+          updatedMessages[updatedMessages.length - 1] = {
+            ...updatedMessages[updatedMessages.length - 1],
+            text: "Error fetching response.",
+          };
+          return updatedMessages;
+        });
+      }
+    }
   };
 
   return (
@@ -218,12 +226,12 @@ const ChatUI = () => {
               placeholder="Type a message"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleMessageSend2()}
+              onKeyDown={(e) => e.key === "Enter" && handleMessageSend()}
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">
                     <IconButton
-                      onClick={handleMessageSend2}
+                      onClick={handleMessageSend}
                       sx={{ color: "#ffffff" }}
                     >
                       <SendIcon />

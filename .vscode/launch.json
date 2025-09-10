@@ -109,6 +109,7 @@
             "description": "Debugpy Port",
             "default": "20002",
             "options": [
+                "22222",
                 "20002",
                 "20003",
                 "20004",

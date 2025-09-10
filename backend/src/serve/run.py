@@ -7,6 +7,7 @@ from uuid import uuid4
 import httpx
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 # --- A2A SDK imports (adjust paths to your SDK) ---
@@ -32,7 +33,7 @@ class ChatReq(BaseModel):
     task_id: Optional[str] = Field(None, example="123")
 
 class ChatResponse(BaseModel):
-    response: A2AClientResponse = Field(..., example={"chunks": [{"text": "Hello, how can I help you today?"}]})
+    response: str = Field(..., example="Hello, how can I help you today?")
     conversation_id: str = Field(..., example="123")
     status: TaskState = Field(..., example="success")
     error: str | None = Field(None)
@@ -50,6 +51,15 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down A2A Chat Service")
 
 app = FastAPI(title="A2A Chat Service", version="1.0.0", lifespan=lifespan)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure this to your frontend URL in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --------- per-request streaming helper ----------
 async def async_send_message_streaming(
@@ -87,13 +97,25 @@ async def async_send_message_streaming(
             chunk: SendStreamingMessageResponse = chunk
             result: A2AClientResponse = chunk.root.result
             logger.info(f"Received message of type: {type(result)}")
-            if isinstance(result, TaskStatusUpdateEvent) or isinstance(result, Task):
+            response = ''
+            if isinstance(result, TaskStatusUpdateEvent):
                 logger.info(f"Status of task: {result.status}")
                 status = result.status.state
+                response = result.status.message.parts[-1].root.text
+            elif isinstance(result, Task):
+                logger.info(f"Task: {result}")
+                status = result.status.state
+                # response = result.status.message.parts[-1].text
+                continue
+            elif isinstance(result, TaskArtifactUpdateEvent):
+                logger.info(f"Artifact of task: {result.artifact}")
+                status = TaskState.working
+                continue
             else:
                 logger.error(f"Unknown result type: {type(result)}")
                 status = TaskState.unknown
-            chunk_normalized =ChatResponse(response=result, conversation_id=context_id, status=status)
+                continue
+            chunk_normalized = ChatResponse(response=response, conversation_id=context_id, status=status)
             yield json.dumps(chunk_normalized.model_dump(mode="python", exclude_none=True)) + "\n"
 
 

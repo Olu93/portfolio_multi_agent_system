@@ -1,7 +1,9 @@
 import asyncio
+from datetime import datetime, timezone
 import logging
 
-from typing import Any, AsyncIterator, Optional, AsyncIterable, Callable
+import re
+from typing import Annotated, Any, AsyncIterator, Optional, AsyncIterable, Callable, TypedDict
 from abc import abstractmethod
 from uuid import uuid4
 
@@ -27,29 +29,35 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
+from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
+from langgraph.graph import add_messages
 from pydantic import BaseModel, Field
-from a2a.utils import new_agent_text_message, new_task, new_agent_parts_message
+from a2a.utils import new_agent_text_message, new_task
 from a2a.utils.constants import (
     AGENT_CARD_WELL_KNOWN_PATH,
     EXTENDED_AGENT_CARD_PATH,
 )
-from a2a.utils import new_agent_text_message, new_task, new_agent_parts_message
+from a2a.utils import new_agent_text_message, new_task
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.errors import GraphRecursionError
 from langchain.chat_models import init_chat_model
 from langchain.chat_models.base import BaseChatModel
-from langchain_core.tools import BaseTool, StructuredTool
+from langchain_core.tools import StructuredTool
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.requests import Request
 from a2a_servers.config_loader import load_prompt_config, load_model_config
-from a2a.types import MessageSendParams, SendStreamingMessageRequest, SendStreamingMessageResponse, Task, Message, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TaskStatus, TaskState
-from langchain_core.messages import BaseMessage
+from a2a.types import MessageSendParams, SendStreamingMessageRequest, Task, Message, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TaskState
 logger = logging.getLogger(__name__)
 
 
 # --- Stream chunk model ------------------------------------------------------
 A2AClientResponse = Task | Message | TaskStatusUpdateEvent | TaskArtifactUpdateEvent
+
+class State(TypedDict):
+    messages: Annotated[list, add_messages]
+    task_id: Annotated[str|None, lambda old, new: new if new is not None else old]
 
 class ChunkMetadata(BaseModel):
     message_type: str = Field("message", example="tool_stream")
@@ -70,6 +78,23 @@ class ToolEmission(BaseModel):
 
 
 AuthHeaderCb = Callable[[str], dict[str, str]]
+
+
+# --- Tool factory from AgentCards -------------------------------------------
+async def fetch_agents(httpx_client: httpx.AsyncClient, registry_url: str) -> list[AgentCard]:
+    logger.info(f"Fetching agents from registry at {registry_url}")
+    # async with httpx_client as s:
+    r = await httpx_client.get(f"{registry_url}/registry/agents")
+    r.raise_for_status()
+    return [AgentCard(**a) for a in r.json()]
+
+def _safe_name(s: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_]+", "_", s).strip("_").lower()
+
+
+
+
+
 
 class A2ASubAgentClient:
     """Lightweight A2A client with pooled HTTP, card caching, and streaming."""
@@ -93,6 +118,9 @@ class A2ASubAgentClient:
     async def aclose(self) -> None:
         if self._own_client:
             await self._httpx.aclose()
+
+
+
 
     async def _resolve_card(self, agent_url: str) -> AgentCard:
         if agent_url in self._card_cache:
@@ -157,6 +185,144 @@ class A2ASubAgentClient:
             logger.info("Stream cancelled for %s", agent_url)
             raise e
 
+    async def build_tools_from_registry(self, 
+        allow_urls: set, allow_caps: set, registry_url: str
+    ) -> list[StructuredTool]:
+        logger.info(
+            f"Building tools from registry with allow_urls={allow_urls}, allow_caps={allow_caps}"
+        )
+
+        cards = await fetch_agents(self._httpx, registry_url)
+        if allow_urls:
+            cards = [c for c in cards if c.url in allow_urls]
+        if allow_caps:
+            cards = [c for c in cards if allow_caps & set((c.capabilities or {}).keys())]
+
+        tools: list[StructuredTool] = []
+        tool_configs: list[dict] = []
+        for card in cards:
+            tool, tool_config = self._create_tool_for_card(card)
+            tools.append(tool)
+            tool_configs.append(tool_config)
+
+        logger.info(f"Successfully created {len(tools)} tools from registry")
+        return tools, tool_configs
+
+
+    def _create_tool_for_card(self, card: AgentCard) -> StructuredTool:
+            async def tool_impl(content: State, config: RunnableConfig):
+                cfg = config.get("configurable", {}) if isinstance(config, dict) else {}
+                context_id = cfg.get("thread_id")
+                task_id = content.get("task_id")
+                msg = content.get("messages")[-1]["content"]
+
+                writer = get_stream_writer()
+
+                buf: list[str] = []
+                async for chunk in self.stream(card.url, msg, context_id, task_id):
+                    try:
+                        result = chunk
+                        if isinstance(result, TaskArtifactUpdateEvent):
+                            state = TaskState.working
+                            timestamp = datetime.now(timezone.utc).isoformat()
+                            artifact = result.artifact
+                            text = BaseAgent._extract_parts(artifact)
+                            emission = ToolEmission(
+                                tool=card.name, 
+                                text=f"{timestamp} - Received Artifact from {card.name}", 
+                                state=state,
+                                timestamp=timestamp,
+                                )
+                            buf.append(f"Agent received artifact at {timestamp}:\n{text}")
+                            logger.info(emission)
+                            writer(emission)
+                        elif isinstance(result, TaskStatusUpdateEvent) and result.status.state not in [TaskState.working, TaskState.input_required]:
+                            status = result.status
+                            state = status.state
+                            timestamp = status.timestamp
+                            parts = result.status.message.parts
+                            text = BaseAgent._format_parts(parts)
+                            emission = ToolEmission(
+                                tool=card.name, 
+                                text=f'{timestamp} - Received Status {state} from {card.name}: {text}', 
+                                state=state, 
+                                timestamp=timestamp,
+                                )
+                            logger.info(emission)
+                            writer(emission)
+                        elif isinstance(result, TaskStatusUpdateEvent) and result.status.state == TaskState.working:
+                            status = result.status
+                            state = status.state
+                            timestamp = status.timestamp
+                            parts = result.status.message.parts
+                            text = BaseAgent._format_parts(parts)
+                            emission = ToolEmission(
+                                tool=card.name, 
+                                text=f'{timestamp} - Received Status {state} from {card.name}: {text}', 
+                                state=state, 
+                                timestamp=timestamp,
+                                )
+                            logger.info(emission)
+                            writer(emission)
+                        elif isinstance(result, TaskStatusUpdateEvent) and result.status.state == TaskState.input_required:
+                            status = result.status
+                            # sub_task_id = result.root.
+                            state = status.state
+                            timestamp = status.timestamp
+                            parts = result.status.message.parts
+                            text = BaseAgent._format_parts(parts)
+                            emission = ToolEmission(
+                                tool=card.name, 
+                                text=f'{timestamp} - Received Status {state} from {card.name}: {text}', 
+                                state=state, 
+                                timestamp=timestamp,
+                                )
+                            buf.append(f"Agent asks for input at {timestamp}:\n{text}")
+                            logger.info(emission)
+                            writer(emission)
+                        elif isinstance(result, Task):
+                            state = TaskState.working
+                            timestamp = datetime.now(timezone.utc).isoformat()
+                            history = result.history
+                            last_element = history[-1]
+                            element_parts: list[Part] = last_element.parts
+                            first_part = BaseAgent._format_parts(element_parts)
+                            emission = ToolEmission(
+                                tool=card.name, 
+                                text=f'{timestamp} - Received Task from {card.name}: {first_part}', 
+                                state=state, 
+                                timestamp=timestamp,
+                                )
+                            logger.info(emission)
+                            writer(emission)
+                        else:
+                            raise Exception(f"Unknown result type: {type(result)}")
+                    except Exception as e:
+                        logger.exception("Error processing tool output", e)
+
+                new_task_id = result.task_id if result.status.state == TaskState.input_required else None
+                return {"messages": ["### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END"], "task_id": new_task_id}
+
+
+            tool_name = _safe_name(card.name) or _safe_name(card.url)
+            tool_examples = [e for s in card.skills for e in s.examples]
+            tool_tags = [t for s in card.skills for t in s.tags]
+            capabilities = list(card.capabilities.model_dump(mode="python").items()) if card.capabilities else []
+            capabilities_strings =[f"{k}={v}" for k, v in sorted(capabilities, key=lambda x: x[0])]
+            summary = (
+                        f"Skill to call {tool_name}\n"
+                        f"Description: {card.description or 'A2A agent'}\n"
+                        f"Examples:\n{'\n'.join(tool_examples)}\n"
+                        f"Tags: {','.join(tool_tags)}\n"
+                        f"Capabilities: {','.join(capabilities_strings)}\n"
+                    )
+            tool_config = {"name": tool_name, "description": summary, "examples": tool_examples, "tags": tool_tags, "capabilities": capabilities}
+            t = StructuredTool.from_function(
+                coroutine=tool_impl,
+                name=tool_name,
+                description=summary,
+            )
+            return t, tool_config
 
 class BaseAgent:
 

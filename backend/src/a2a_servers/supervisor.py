@@ -1,59 +1,32 @@
 # supervisor.py — LLM-routed supervisor using LangGraph + A2A Registry discovery (a2a package)
 # ChatGPT convo: https://chatgpt.com/share/68b8361d-6b24-8009-ba31-aaaebdc96cc9
 import asyncio
-from datetime import datetime, timezone
-import json
 import logging
 import os
-import re
 from urllib.parse import urlparse
 import uuid
-from typing import Annotated, Any, Dict, Literal, Optional, List, AsyncIterable, TypedDict, Union
+from typing import Any, Dict, List, AsyncIterable
 
 import click
 import httpx
 from a2a.types import (
-    AgentCapabilities,
-    AgentCard,
-    AgentSkill,
-    Part,
     Artifact,
     TaskState,
-    TextPart,
-    TaskArtifactUpdateEvent,
-    TaskStatusUpdateEvent,
-    Task,
 )
-from a2a.server.events import EventQueue
-from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryTaskStore
-from a2a.server.apps import A2AStarletteApplication
 
-from langchain_core.messages import AIMessage, AnyMessage, ToolMessage, BaseMessage
-from langchain.chat_models import init_chat_model
+from langchain_core.messages import AIMessage, ToolMessage, BaseMessage
 
-from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool
 
-from a2a_servers.a2a_client import A2ASubAgentClient, BaseAgent, BaseAgentExecutor, ChunkResponse, ChunkMetadata, ToolEmission
+from a2a_servers.a2a_client import A2ASubAgentClient, BaseAgent, BaseAgentExecutor, ChunkResponse, ChunkMetadata, State, ToolEmission
 from a2a_servers.config_loader import (
     load_agent_config,
-    load_model_config,
-    load_prompt_config,
 )
 from langgraph.checkpoint.memory import InMemorySaver
 from langchain_core.tools.structured import StructuredTool
-from pydantic import BaseModel, Field
-from langgraph.config import get_stream_writer
-from starlette.applications import Starlette
-from starlette.routing import Route
-from starlette.responses import JSONResponse
-from starlette.requests import Request
 import uvicorn
 
 httpx_client = httpx.AsyncClient(timeout=10) 
@@ -63,176 +36,16 @@ logger = logging.getLogger(__name__)
 # --- State -------------------------------------------------------------------
 memory = InMemorySaver()
 
-def keep_latest(old: str|None, new: str|None) -> str|None:
-    return new if new is not None else old
 
-class State(TypedDict):
-    messages: Annotated[list, add_messages]
-    task_id: Annotated[str|None, keep_latest]
+
 
 # --- Registry client ---------------------------------------------------------
 REGISTRY_URL = os.getenv("REGISTRY_URL", "http://registry:8000")
-
-async def fetch_agents(httpx_client: httpx.AsyncClient) -> List[AgentCard]:
-    logger.info(f"Fetching agents from registry at {REGISTRY_URL}")
-    # async with httpx_client as s:
-    r = await httpx_client.get(f"{REGISTRY_URL}/registry/agents")
-    r.raise_for_status()
-    return [AgentCard(**a) for a in r.json()]
-
-# --- Tool factory from AgentCards -------------------------------------------
-async def build_tools_from_registry(
-    allow_urls: set, allow_caps: set
-) -> List[StructuredTool]:
-    logger.info(
-        f"Building tools from registry with allow_urls={allow_urls}, allow_caps={allow_caps}"
-    )
-
-    def _safe_name(s: str) -> str:
-        return re.sub(r"[^a-zA-Z0-9_]+", "_", s).strip("_").lower()
-
-    def _create_tool_for_card(card: AgentCard, a2a_client: A2ASubAgentClient) -> StructuredTool:
-        async def tool_impl(content: State, config: RunnableConfig):
-            cfg = config.get("configurable", {}) if isinstance(config, dict) else {}
-            context_id = cfg.get("thread_id")
-            task_id = content.get("task_id")
-            # msg = content.get("messages")[0]["content"]
-            msg = content.get("messages")[-1]["content"]
-
-            writer = get_stream_writer()
-
-            buf: list[str] = []
-            async for chunk in a2a_client.stream(card.url, msg, context_id, task_id):
-            # async for chunk in client.async_send_message_streaming(card.url, msg, context_id, None):
-                try:
-                    result = chunk
-                    if isinstance(result, TaskArtifactUpdateEvent):
-                        state = TaskState.working
-                        timestamp = datetime.now(timezone.utc).isoformat()
-                        artifact = result.artifact
-                        text = BaseAgent._extract_parts(artifact)
-                        emission = ToolEmission(
-                            tool=card.name, 
-                            text=f"{timestamp} - Received Artifact from {card.name}", 
-                            state=state,
-                            timestamp=timestamp,
-                            )
-                        buf.append(f"Agent received artifact at {timestamp}:\n{text}")
-                        logger.info(emission)
-                        writer(emission)
-                    elif isinstance(result, TaskStatusUpdateEvent) and result.status.state not in [TaskState.working, TaskState.input_required]:
-                        status = result.status
-                        state = status.state
-                        timestamp = status.timestamp
-                        parts = result.status.message.parts
-                        text = BaseAgent._format_parts(parts)
-                        emission = ToolEmission(
-                            tool=card.name, 
-                            text=f'{timestamp} - Received Status {state} from {card.name}: {text}', 
-                            state=state, 
-                            timestamp=timestamp,
-                            )
-                        logger.info(emission)
-                        writer(emission)
-                    elif isinstance(result, TaskStatusUpdateEvent) and result.status.state == TaskState.working:
-                        status = result.status
-                        state = status.state
-                        timestamp = status.timestamp
-                        parts = result.status.message.parts
-                        text = BaseAgent._format_parts(parts)
-                        emission = ToolEmission(
-                            tool=card.name, 
-                            text=f'{timestamp} - Received Status {state} from {card.name}: {text}', 
-                            state=state, 
-                            timestamp=timestamp,
-                            )
-                        logger.info(emission)
-                        writer(emission)
-                    elif isinstance(result, TaskStatusUpdateEvent) and result.status.state == TaskState.input_required:
-                        status = result.status
-                        # sub_task_id = result.root.
-                        state = status.state
-                        timestamp = status.timestamp
-                        parts = result.status.message.parts
-                        text = BaseAgent._format_parts(parts)
-                        emission = ToolEmission(
-                            tool=card.name, 
-                            text=f'{timestamp} - Received Status {state} from {card.name}: {text}', 
-                            state=state, 
-                            timestamp=timestamp,
-                            )
-                        buf.append(f"Agent asks for input at {timestamp}:\n{text}")
-                        logger.info(emission)
-                        writer(emission)
-                    elif isinstance(result, Task):
-                        state = TaskState.working
-                        timestamp = datetime.now(timezone.utc).isoformat()
-                        history = result.history
-                        last_element = history[-1]
-                        element_parts: List[Part] = last_element.parts
-                        first_part = BaseAgent._format_parts(element_parts)
-                        emission = ToolEmission(
-                            tool=card.name, 
-                            text=f'{timestamp} - Received Task from {card.name}: {first_part}', 
-                            state=state, 
-                            timestamp=timestamp,
-                            )
-                        logger.info(emission)
-                        writer(emission)
-                    else:
-                        raise Exception(f"Unknown result type: {type(result)}")
-                except Exception as e:
-                    logger.exception("Error processing tool output", e)
-                   # custom stream
-
-            # ToolNode will turn this into ToolMessage.content for the next model step
-            if not buf:
-                return ""
-            # return f"Tool Ouput: {'\n'.join(buf)} \n Task ID: {result.task_id}"
-            new_task_id = result.task_id if result.status.state == TaskState.input_required else None
-            return {"messages": ["### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END"], "task_id": new_task_id}
-            # return "### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END"
-            # return ToolMessage(content="### TOOL_OUTPUT_START\n" + "\n".join(buf) + "\n### TOOL_OUTPUT_END", tool_call_id=result.task_id)
+httpx_client = httpx.AsyncClient(timeout=10) 
 
 
-        tool_name = _safe_name(card.name) or _safe_name(card.url)
-        tool_examples = [e for s in card.skills for e in s.examples]
-        tool_tags = [t for s in card.skills for t in s.tags]
-        capabilities = list(card.capabilities.model_dump(mode="python").items()) if card.capabilities else []
-        capabilities_strings =[f"{k}={v}" for k, v in sorted(capabilities, key=lambda x: x[0])]
-        summary = (
-                    f"Skill to call {tool_name}\n"
-                    f"Description: {card.description or 'A2A agent'}\n"
-                    f"Examples:\n{'\n'.join(tool_examples)}\n"
-                    f"Tags: {','.join(tool_tags)}\n"
-                    f"Capabilities: {','.join(capabilities_strings)}\n"
-                   )
-        tool_config = {"name": tool_name, "description": summary, "examples": tool_examples, "tags": tool_tags, "capabilities": capabilities}
-        t = StructuredTool.from_function(
-            coroutine=tool_impl,
-            name=tool_name,
-            description=summary,
-            # response_format='content_and_artifact',
-        )
-        return t, tool_config
 
 
-    a2a_client = A2ASubAgentClient(httpx_client=httpx_client)
-    cards = await fetch_agents(httpx_client)
-    if allow_urls:
-        cards = [c for c in cards if c.url in allow_urls]
-    if allow_caps:
-        cards = [c for c in cards if allow_caps & set((c.capabilities or {}).keys())]
-
-    tools: List[StructuredTool] = []
-    tool_configs: List[dict] = []
-    for card in cards:
-        tool, tool_config = _create_tool_for_card(card, a2a_client)
-        tools.append(tool)
-        tool_configs.append(tool_config)
-
-    logger.info(f"Successfully created {len(tools)} tools from registry")
-    return tools, tool_configs
 
 # --- Supervisor Agent --------------------------------------------------------
 class SupervisorAgent(BaseAgent):
@@ -244,32 +57,15 @@ class SupervisorAgent(BaseAgent):
         self.model = model.bind_tools(self.tools)
         return self.model
 
-    async def build_tools(self) -> List[StructuredTool]:
+    async def build_tools(self) -> list[StructuredTool]:
         allow_urls = set(self.agent_config.get("allow_urls", []) or [])
         allow_caps = set(self.agent_config.get("allow_caps", []) or [])
-        tools, tool_configs = await build_tools_from_registry(allow_urls, allow_caps)
+        self.sub_agent_client = A2ASubAgentClient(httpx_client=httpx_client)
+        tools, tool_configs = await self.sub_agent_client.build_tools_from_registry(allow_urls, allow_caps, REGISTRY_URL)
         self.agent_config["tools"] = tool_configs
         return tools
 
     async def build_graph(self) -> CompiledStateGraph:
-
-        # def tools_condition(
-        #     state: Union[list[AnyMessage], dict[str, Any], BaseModel],
-        #     messages_key: str = "messages",
-        # ) -> Literal["tools", "__end__"]:
-            
-        #     if isinstance(state, list):
-        #         ai_message = state[-1]
-        #     elif isinstance(state, dict) and (messages := state.get(messages_key, [])):
-        #         ai_message = messages[-1]
-        #     elif messages := getattr(state, messages_key, []):
-        #         ai_message = messages[-1]
-        #     else:
-        #         raise ValueError(f"No messages found in input state to tool_edge: {state}")
-        #     if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
-        #         return "tools"
-        #     return "__end__"
-
 
         def model_execution(state: State) -> State:
             messages = state["messages"]
