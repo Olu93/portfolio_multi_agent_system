@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 MCP_HOST = os.getenv("MCP_HOST", "localhost")
 MCP_PORT = int(os.getenv("MCP_PORT", "8002"))
 PW_CHANNEL = os.getenv("PLAYWRIGHT_CHANNEL")  # e.g., "chrome"
-PW_HEADLESS = os.getenv("PLAYWRIGHT_HEADLESS", "false").lower() in {"1", "true", "yes"}
+PW_HEADLESS = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() in {"1", "true", "yes"}
 
 # Fast reusable cleaner
 _LXML_CLEANER = Cleaner(
@@ -552,7 +552,7 @@ manager = PlaywrightBrowserManager()
 
 @mcp.tool()
 async def launch_browser_with_page(
-    url: str, headless: bool = False, ctx: Context = None
+    url: str, headless: bool = True, ctx: Context = None
 ) -> MCPResponse:
     """
     Launch a new browser instance using Playwright and navigate to a specific URL.
@@ -563,7 +563,7 @@ async def launch_browser_with_page(
     Args:
         url (str): The URL to navigate to. Must include protocol (http:// or https://).
         headless (bool): Whether to run the browser in headless mode (no GUI).
-                        Defaults to False (visible browser).
+                        Defaults to True (headless browser).
 
     Returns:
         MCPResponse: Response object with status and error fields.
@@ -593,7 +593,7 @@ async def launch_browser_with_page(
 
 
 @mcp.tool()
-async def launch_browser(headless: bool = False, ctx: Context = None) -> MCPResponse:
+async def launch_browser(headless: bool = True, ctx: Context = None) -> MCPResponse:
     """
     Launch a new browser instance using Playwright.
 
@@ -602,14 +602,14 @@ async def launch_browser(headless: bool = False, ctx: Context = None) -> MCPResp
 
     Args:
         headless (bool): Whether to run the browser in headless mode (no GUI).
-                        Defaults to False (visible browser).
+                        Defaults to True (headless browser).
 
     Returns:
         MCPResponse: Response object with status and error fields.
 
     Example:
-        launch_browser(headless=True)  # Start headless browser
-        launch_browser()               # Start visible browser
+        launch_browser()               # Start headless browser (default)
+        launch_browser(headless=False) # Start visible browser
     """
     try:
         success = await manager.launch_browser(ctx, headless=headless)
