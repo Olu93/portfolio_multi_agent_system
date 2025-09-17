@@ -43,11 +43,12 @@ langchain-community = "^0.3.27"
 aiosmtplib = "^3.0.1"
 yfinance = "^0.2.65"
 caldav = "^2.0.1"
+lxml = {extras = ["html-clean"], version = "^6.0.1"}
+cssselect = "^1.3.0"
 
 [tool.poetry.group.playwright.dependencies]
 playwright = "^1.40.0"
 pytest-playwright = "^0.7.0"
-crawl4ai = "^0.6.3"
 
 [tool.poetry.group.kafka.dependencies]
 kafka = "^1.3.5"

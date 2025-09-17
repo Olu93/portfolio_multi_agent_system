@@ -23,7 +23,8 @@ services:
     working_dir: /app/mcp_servers
     command: npx @modelcontextprotocol/inspector
     restart: unless-stopped
-
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # mcp-jam-inspector:
   #   image: mcpjam/mcp-inspector:latest
@@ -156,26 +157,25 @@ services:
     working_dir: /app/mcp_servers
     restart: unless-stopped
 
-  # playwright-mcp:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.playwright
-  #   container_name: ohcm_playwright_mcp
-  #   environment:
-  #     - MCP_HOST=0.0.0.0
-  #     - MCP_PORT=8000
-  #     - PLAYWRIGHT_BROWSER_WS_ENDPOINT=${PLAYWRIGHT_BROWSER_WS_ENDPOINT:-ws://host.docker.internal:9222}
-  #     - PYTHONPATH=/app
-  #   volumes:
-  #     - ./backend/src/mcp_servers:/app/mcp_servers
-  #     - ./screenshots:/app/screenshots
-  #   working_dir: /app/mcp_servers
-  #   command: python playwright_extension.py
-  #   restart: unless-stopped
-  #   networks:
-  #     - mcp-network
-  #   extra_hosts:
-  #     - "host.docker.internal:host-gateway"
+  playwright-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
+    container_name: ohcm_playwright_mcp
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      - PLAYWRIGHT_BROWSER_WS_ENDPOINT=${PLAYWRIGHT_BROWSER_WS_ENDPOINT:-ws://host.docker.internal:9222}
+      - PYTHONPATH=/app
+    volumes:
+      - ./backend/src/mcp_servers:/app/mcp_servers
+      - ./screenshots:/app/screenshots
+    working_dir: /app/mcp_servers
+    command: python playwright_extension.py
+    ports:
+      - "20011:5678"    # debugpy port for VS Code debugging
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   file-storage-mcp:
     build:
@@ -193,7 +193,7 @@ services:
       - MCP_PORT=8000
       - PYTHONPATH=/app
     ports:
-      - "20011:5678"    # debugpy port for VS Code debugging
+      - "20012:5678"    # debugpy port for VS Code debugging
     volumes:
       - ./backend/src/mcp_servers:/app/mcp_servers
       - ./files:/app/files
