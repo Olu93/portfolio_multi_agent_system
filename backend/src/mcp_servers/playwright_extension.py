@@ -1,13 +1,15 @@
 import os, json, asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Literal, Optional, Dict
 from mcp.server.fastmcp import FastMCP, Context
 from playwright.async_api import async_playwright, Browser, Page
 from lxml import html
 from lxml_html_clean import Cleaner
 import logging
 import base64
+
+from pydantic import BaseModel
 
 # --- logging setup ---
 log = logging.getLogger(__name__)
@@ -99,6 +101,12 @@ class PageInfo:
     text_content: str
     screenshot: Optional[str] = None
     timestamp: str = None
+
+class MCPResponse(BaseModel):
+    status: Literal["OK", "ERR"]
+    payload: Optional[str|PageInfo] = None
+    error: Optional[str] = None
+
 
 class PlaywrightBrowserManager:
     def __init__(self):
@@ -239,42 +247,144 @@ class PlaywrightBrowserManager:
             if ctx: await ctx.error(f"Failed to fill form: {e}")
             return False
 
-    async def get_current_page_info(self, include_screenshot: bool, reduce_noise: bool, ctx: Optional[Context]) -> Optional[PageInfo]:
-        try:
-            if not self.page:
-                msg = "No page. Launch the browser first."
-                log.warning(msg)
-                if ctx: await ctx.error(msg)
-                return None
+    async def _ensure_page_available(self, ctx: Optional[Context]) -> tuple[bool, Optional[str]]:
+        """Ensure page is available, return (success, error_message)."""
+        if not self.page:
+            msg = "No page. Launch the browser first."
+            log.warning(msg)
+            if ctx: await ctx.error(msg)
+            return False, msg
+        return True, None
 
-            if ctx: await ctx.info("Collecting page info…")
+    async def get_page_url(self, ctx: Optional[Context]) -> MCPResponse:
+        """Get the current page URL."""
+        try:
+            available, error_msg = await self._ensure_page_available(ctx)
+            if not available:
+                return MCPResponse(status="ERR", error=error_msg)
             url = self.page.url
+            log.debug(f"Retrieved page URL: {url}")
+            return MCPResponse(status="OK", payload=url)
+        except Exception as e:
+            error_msg = f"Get page URL failed: {e}"
+            log.exception(error_msg)
+            if ctx: await ctx.error(error_msg)
+            return MCPResponse(status="ERR", error=str(e))
+
+    async def get_page_title(self, ctx: Optional[Context]) -> MCPResponse:
+        """Get the current page title."""
+        try:
+            available, error_msg = await self._ensure_page_available(ctx)
+            if not available:
+                return MCPResponse(status="ERR", error=error_msg)
             title = await self.page.title()
+            log.debug(f"Retrieved page title: {title}")
+            return MCPResponse(status="OK", payload=title)
+        except Exception as e:
+            error_msg = f"Get page title failed: {e}"
+            log.exception(error_msg)
+            if ctx: await ctx.error(error_msg)
+            return MCPResponse(status="ERR", error=str(e))
+
+    async def get_page_html_raw(self, ctx: Optional[Context]) -> MCPResponse:
+        """Get raw HTML content of the current page."""
+        try:
+            available, error_msg = await self._ensure_page_available(ctx)
+            if not available:
+                return MCPResponse(status="ERR", error=error_msg)
             html_content = await self.page.content()
-            
-            # Use Beautiful Soup for text extraction instead of JavaScript
+            log.debug("Retrieved raw HTML content")
+            return MCPResponse(status="OK", payload=html_content)
+        except Exception as e:
+            error_msg = f"Get page HTML failed: {e}"
+            log.exception(error_msg)
+            if ctx: await ctx.error(error_msg)
+            return MCPResponse(status="ERR", error=str(e))
+
+    async def get_page_text(self, reduce_noise: bool, ctx: Optional[Context]) -> MCPResponse:
+        """Get text content of the current page."""
+        try:
+            available, error_msg = await self._ensure_page_available(ctx)
+            if not available:
+                return MCPResponse(status="ERR", error=error_msg)
+            html_content = await self.page.content()
             text_content = extract_text_lxml(html_content, reduce_noise)
+            log.debug("Retrieved page text content")
+            return MCPResponse(status="OK", payload=text_content)
+        except Exception as e:
+            error_msg = f"Get page text failed: {e}"
+            log.exception(error_msg)
+            if ctx: await ctx.error(error_msg)
+            return MCPResponse(status="ERR", error=str(e))
+
+    async def get_page_html_cleaned(self, reduce_noise: bool, ctx: Optional[Context]) -> MCPResponse:
+        """Get cleaned HTML content of the current page."""
+        try:
+            available, error_msg = await self._ensure_page_available(ctx)
+            if not available:
+                return MCPResponse(status="ERR", error=error_msg)
+            html_content = await self.page.content()
+            if reduce_noise:
+                html_content = clean_html_lxml(html_content, True)
+            log.debug("Retrieved cleaned HTML content")
+            return MCPResponse(status="OK", payload=html_content)
+        except Exception as e:
+            error_msg = f"Get cleaned page HTML failed: {e}"
+            log.exception(error_msg)
+            if ctx: await ctx.error(error_msg)
+            return MCPResponse(status="ERR", error=str(e))
+
+    async def get_page_screenshot(self, ctx: Optional[Context]) -> MCPResponse:
+        """Get a screenshot of the current page as base64 string."""
+        try:
+            available, error_msg = await self._ensure_page_available(ctx)
+            if not available:
+                return MCPResponse(status="ERR", error=error_msg)
+            img_bytes = await self.page.screenshot(full_page=True)
+            base64_img = base64.b64encode(img_bytes).decode("utf-8")
+            log.debug("Captured page screenshot")
+            return MCPResponse(status="OK", payload=base64_img)
+        except Exception as e:
+            error_msg = f"Get page screenshot failed: {e}"
+            log.exception(error_msg)
+            if ctx: await ctx.error(error_msg)
+            return MCPResponse(status="ERR", error=str(e))
+
+    async def get_current_page_info(self, include_screenshot: bool, reduce_noise: bool, ctx: Optional[Context]) -> MCPResponse:
+        """Get comprehensive page information by calling individual methods."""
+        try:
+            if ctx: await ctx.info("Collecting page info…")
+            
+            # Get individual components efficiently
+            url_resp = await self.get_page_url(ctx)
+            title_resp = await self.get_page_title(ctx)
+            html_resp = await self.get_page_html_raw(ctx)
+            text_resp = await self.get_page_text(reduce_noise, ctx)
+            
+            # Check if any individual call failed
+            for resp, name in [(url_resp, "URL"), (title_resp, "title"), (html_resp, "HTML"), (text_resp, "text")]:
+                if resp.status == "ERR":
+                    return MCPResponse(status="ERR", error=f"Failed to get page {name}: {resp.error}")
             
             base64_img = None
             if include_screenshot:
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                # screenshot_path = f"screenshot_{ts}.png"
-                img_bytes = await self.page.screenshot(full_page=True)
-                base64_img = base64.b64encode(img_bytes).decode("utf-8")
-                # log.info(f"Screenshot saved: {screenshot_path}")
-                # if ctx: await ctx.info(f"Screenshot saved: {screenshot_path}")
+                screenshot_resp = await self.get_page_screenshot(ctx)
+                if screenshot_resp.status == "ERR":
+                    return MCPResponse(status="ERR", error=f"Failed to get screenshot: {screenshot_resp.error}")
+                base64_img = screenshot_resp.payload
 
             info = PageInfo(
-                url=url, title=title, html_content=html_content, text_content=text_content,
-                screenshot=base64_img, timestamp=datetime.now().isoformat()
+                url=url_resp.payload, title=title_resp.payload, html_content=html_resp.payload, 
+                text_content=text_resp.payload, screenshot=base64_img, timestamp=datetime.now().isoformat()
             )
-            log.debug(f"Page info collected: title={title}, url={url}")
+            log.debug(f"Page info collected: title={title_resp.payload}, url={url_resp.payload}")
             if ctx: await ctx.info("Page info collected.")
-            return info
+            return MCPResponse(status="OK", payload=info)
         except Exception as e:
-            log.exception("Get page info failed")
-            if ctx: await ctx.error(f"Get page info failed: {e}")
-            return None
+            error_msg = f"Get page info failed: {e}"
+            log.exception(error_msg)
+            if ctx: await ctx.error(error_msg)
+            return MCPResponse(status="ERR", error=str(e))
 
     async def close(self):
         try:
@@ -314,8 +424,48 @@ class PlaywrightBrowserManager:
 mcp = FastMCP("playwright-browser", host=MCP_HOST, port=MCP_PORT)
 manager = PlaywrightBrowserManager()
 
+
 @mcp.tool()
-async def launch_browser(headless: bool = False, ctx: Context = None) -> str:
+async def launch_browser_with_page(url: str, headless: bool = False, ctx: Context = None) -> MCPResponse:
+    """
+    Launch a new browser instance using Playwright and navigate to a specific URL.
+    
+    This tool starts a browser (Chrome/Chromium by default) that can be used for web automation.
+    The browser will be reused if already running and connected.
+    
+    Args:
+        url (str): The URL to navigate to. Must include protocol (http:// or https://).
+        headless (bool): Whether to run the browser in headless mode (no GUI).
+                        Defaults to False (visible browser).
+    
+    Returns:
+        MCPResponse: Response object with status and error fields.
+    
+    Example:
+        launch_browser_with_page("https://example.com")
+        launch_browser_with_page("https://google.com")
+    
+    Note:
+        Requires browser to be launched first using launch_browser().
+        This tool is more efficient on first launch than launch_browser() followed by navigate_to_url()
+        as it launches the browser and navigates to the URL in one step.
+        
+    """
+    try:
+        success = await manager.launch_browser(ctx, headless=headless)
+        if success:
+            success = await manager.navigate_to(url, ctx)
+            if success:
+                return MCPResponse(status="OK")
+            else:
+                return MCPResponse(status="ERR", error="Failed to navigate to URL")
+        else:
+            return MCPResponse(status="ERR", error="Failed to launch browser")
+    except Exception as e:
+        return MCPResponse(status="ERR", error=str(e))
+
+@mcp.tool()
+async def launch_browser(headless: bool = False, ctx: Context = None) -> MCPResponse:
     """
     Launch a new browser instance using Playwright.
     
@@ -327,16 +477,23 @@ async def launch_browser(headless: bool = False, ctx: Context = None) -> str:
                         Defaults to False (visible browser).
     
     Returns:
-        str: "OK" if browser launched successfully, "ERR" if failed.
+        MCPResponse: Response object with status and error fields.
     
     Example:
         launch_browser(headless=True)  # Start headless browser
         launch_browser()               # Start visible browser
     """
-    return "OK" if await manager.launch_browser(ctx, headless=headless) else "ERR"
+    try:
+        success = await manager.launch_browser(ctx, headless=headless)
+        if success:
+            return MCPResponse(status="OK")
+        else:
+            return MCPResponse(status="ERR", error="Failed to launch browser")
+    except Exception as e:
+        return MCPResponse(status="ERR", error=str(e))
 
 @mcp.tool()
-async def navigate_to_url(url: str, ctx: Context = None) -> str:
+async def navigate_to_url(url: str, ctx: Context = None) -> MCPResponse:
     """
     Navigate the browser to a specific URL.
     
@@ -347,7 +504,7 @@ async def navigate_to_url(url: str, ctx: Context = None) -> str:
         url (str): The URL to navigate to. Must include protocol (http:// or https://).
     
     Returns:
-        str: "OK" if navigation successful, "ERR" if failed.
+        MCPResponse: Response object with status and error fields.
     
     Example:
         navigate_to_url("https://example.com")
@@ -356,10 +513,17 @@ async def navigate_to_url(url: str, ctx: Context = None) -> str:
     Note:
         Requires browser to be launched first using launch_browser().
     """
-    return "OK" if await manager.navigate_to(url, ctx) else "ERR"
+    try:
+        success = await manager.navigate_to(url, ctx)
+        if success:
+            return MCPResponse(status="OK")
+        else:
+            return MCPResponse(status="ERR", error=f"Failed to navigate to {url}")
+    except Exception as e:
+        return MCPResponse(status="ERR", error=str(e))
 
 @mcp.tool()
-async def wait_for_element(selector: str, timeout_ms: int = 30000, ctx: Context = None) -> str:
+async def wait_for_element(selector: str, timeout_ms: int = 30000, ctx: Context = None) -> MCPResponse:
     """
     Wait for an element to appear on the current page.
     
@@ -372,7 +536,7 @@ async def wait_for_element(selector: str, timeout_ms: int = 30000, ctx: Context 
         timeout_ms (int): Maximum time to wait in milliseconds. Defaults to 30000 (30 seconds).
     
     Returns:
-        str: "OK" if element found within timeout, "ERR" if timeout exceeded or failed.
+        MCPResponse: Response object with status and error fields.
     
     Example:
         wait_for_element("#login-button")
@@ -386,10 +550,17 @@ async def wait_for_element(selector: str, timeout_ms: int = 30000, ctx: Context 
         - Attribute: "[data-testid='value']"
         - Element: "button", "input", "div"
     """
-    return "OK" if await manager.wait_for_element(selector, timeout_ms, ctx) else "ERR"
+    try:
+        success = await manager.wait_for_element(selector, timeout_ms, ctx)
+        if success:
+            return MCPResponse(status="OK")
+        else:
+            return MCPResponse(status="ERR", error=f"Element not found: {selector}")
+    except Exception as e:
+        return MCPResponse(status="ERR", error=str(e))
 
 @mcp.tool()
-async def click_element(selector: str, ctx: Context = None) -> str:
+async def click_element(selector: str, ctx: Context = None) -> MCPResponse:
     """
     Click on an element on the current page.
     
@@ -400,7 +571,7 @@ async def click_element(selector: str, ctx: Context = None) -> str:
                        Examples: "#submit", ".button", "button[type='submit']"
     
     Returns:
-        str: "OK" if click successful, "ERR" if element not found or not clickable.
+        MCPResponse: Response object with status and error fields.
     
     Example:
         click_element("#login-button")
@@ -411,10 +582,17 @@ async def click_element(selector: str, ctx: Context = None) -> str:
         Element must be visible and not covered by other elements.
         Use wait_for_element() first if element might not be immediately available.
     """
-    return "OK" if await manager.click_element(selector, ctx) else "ERR"
+    try:
+        success = await manager.click_element(selector, ctx)
+        if success:
+            return MCPResponse(status="OK")
+        else:
+            return MCPResponse(status="ERR", error=f"Failed to click element: {selector}")
+    except Exception as e:
+        return MCPResponse(status="ERR", error=str(e))
 
 @mcp.tool()
-async def fill_form(form_data: str, ctx: Context = None) -> str:
+async def fill_form(form_data: str, ctx: Context = None) -> MCPResponse:
     """
     Fill form fields on the current page.
     
@@ -426,7 +604,7 @@ async def fill_form(form_data: str, ctx: Context = None) -> str:
                         Format: '{"#username": "john", "#password": "secret", ".email": "john@example.com"}'
     
     Returns:
-        str: "OK" if all fields filled successfully, "ERR" if any field failed or invalid JSON.
+        MCPResponse: Response object with status and error fields.
     
     Example:
         fill_form('{"#username": "john_doe", "#password": "mypassword123"}')
@@ -442,12 +620,18 @@ async def fill_form(form_data: str, ctx: Context = None) -> str:
     """
     try:
         data = json.loads(form_data)
-    except Exception:
-        return "ERR: form_data must be JSON"
-    return "OK" if await manager.fill_form(data, ctx) else "ERR"
+        success = await manager.fill_form(data, ctx)
+        if success:
+            return MCPResponse(status="OK")
+        else:
+            return MCPResponse(status="ERR", error="Failed to fill form fields")
+    except json.JSONDecodeError as e:
+        return MCPResponse(status="ERR", error=f"Invalid JSON format: {e}")
+    except Exception as e:
+        return MCPResponse(status="ERR", error=str(e))
 
 @mcp.tool()
-async def get_current_page(include_screenshot: bool = False, ctx: Context = None) -> str:
+async def get_current_page(include_screenshot: bool = False, ctx: Context = None) -> MCPResponse:
     """
     Get comprehensive information about the current page.
     
@@ -460,50 +644,62 @@ async def get_current_page(include_screenshot: bool = False, ctx: Context = None
                                  Defaults to False.
     
     Returns:
-        str: JSON string containing page information with keys:
-             - url: Current page URL
-             - title: Page title
-             - html_content: Full HTML source
-             - text_content: Cleaned text content (noise removed)
-             - screenshot_path: Path to screenshot file (if include_screenshot=True)
-             - timestamp: When the data was collected
+        MCPResponse: Response object with status, payload (JSON string), and error fields.
+                    payload contains page information with keys:
+                    - url: Current page URL
+                    - title: Page title
+                    - html_content: Full HTML source
+                    - text_content: Cleaned text content (noise removed)
+                    - screenshot: Base64 encoded screenshot (if include_screenshot=True)
+                    - timestamp: When the data was collected
     
     Example:
         get_current_page()                    # Get basic page info
         get_current_page(include_screenshot=True)  # Get page info + screenshot
     
     Note:
-        Text content is automatically cleaned using Beautiful Soup to remove scripts,
+        Text content is automatically cleaned using lxml to remove scripts,
         styles, ads, navigation elements, and other noise for better readability.
     """
-    info = await manager.get_current_page_info(include_screenshot, True, ctx)
-    return json.dumps(info.__dict__, indent=2) if info else "ERR"
+    return await manager.get_current_page_info(include_screenshot, True, ctx)
 
 
 @mcp.tool()
-async def get_page_screenshot(ctx: Context = None) -> str:
+async def get_page_screenshot(ctx: Context = None) -> MCPResponse:
     """
     Get a screenshot of the current page.
     
-    This tool returns a screenshot of the current page as a base64 encoded string.
+    This tool captures a full-page screenshot of the current browser page and returns it
+    as a base64 encoded string. This is efficient as it only captures the screenshot
+    without extracting other page information.
+    
+    Returns:
+        MCPResponse: Response object with status, payload (base64 image data), and error fields.
+    
+    Example:
+        get_page_screenshot()  # Get screenshot as base64 string
+    
+    Note:
+        This tool only captures the screenshot and doesn't extract text or HTML content,
+        making it much faster than get_current_page() with include_screenshot=True.
     """
-    info = await manager.get_current_page_info(True, False, ctx)
-    return base64.b64encode(info.screenshot).decode("utf-8") if info else "ERR"
+    return await manager.get_page_screenshot(ctx)
 
 @mcp.tool()
-async def get_page_text(reduce_noise: bool = True, ctx: Context = None) -> str:
+async def get_page_text(reduce_noise: bool = True, ctx: Context = None) -> MCPResponse:
     """
     Extract clean text content from the current page.
     
     This tool extracts only the text content from the current page, with optional noise reduction.
-    Uses Beautiful Soup for robust text extraction and cleaning.
+    Uses lxml for robust text extraction and cleaning. This is efficient as it only extracts
+    text content without getting HTML, screenshots, or other page information.
     
     Args:
         reduce_noise (bool): Whether to remove noise elements like scripts, styles, ads,
                            navigation, headers, footers, etc. Defaults to True.
     
     Returns:
-        str: Clean text content of the page, or "ERR" if extraction failed.
+        MCPResponse: Response object with status, payload (text content), and error fields.
     
     Example:
         get_page_text()                # Get clean text (noise removed)
@@ -520,16 +716,16 @@ async def get_page_text(reduce_noise: bool = True, ctx: Context = None) -> str:
         - Meta tags and head elements
         - Elements with ad-related attributes
     """
-    info = await manager.get_current_page_info(False, reduce_noise, ctx)
-    return info.text_content if info else "ERR"
+    return await manager.get_page_text(reduce_noise, ctx)
 
 @mcp.tool()
-async def get_page_html(reduce_noise: bool = True, ctx: Context = None) -> str:
+async def get_page_html(reduce_noise: bool = True, ctx: Context = None) -> MCPResponse:
     """
     Get HTML source code of the current page.
     
     This tool returns the HTML source code of the current page, with optional cleaning
-    to remove noise elements while preserving the HTML structure.
+    to remove noise elements while preserving the HTML structure. This is efficient as
+    it only gets HTML content without extracting text, screenshots, or other information.
     
     Args:
         reduce_noise (bool): Whether to clean the HTML by removing noise elements like
@@ -537,7 +733,7 @@ async def get_page_html(reduce_noise: bool = True, ctx: Context = None) -> str:
                            HTML structure intact. Defaults to True.
     
     Returns:
-        str: HTML source code of the page (cleaned if reduce_noise=True), or "ERR" if failed.
+        MCPResponse: Response object with status, payload (HTML content), and error fields.
     
     Example:
         get_page_html()                # Get cleaned HTML
@@ -551,23 +747,48 @@ async def get_page_html(reduce_noise: bool = True, ctx: Context = None) -> str:
         - Understanding page layout
         - Debugging web automation issues
     """
-    try:
-        if not manager.page:
-            msg = "No page. Launch the browser first."
-            log.warning(msg)
-            if ctx: await ctx.error(msg)
-            return "ERR"
-        
-        html_content = await manager.page.content()
-        
-        if reduce_noise:
-            html_content = clean_html_lxml(html_content, True)
-        
-        return html_content
-    except Exception as e:
-        log.exception("Get page HTML failed")
-        if ctx: await ctx.error(f"Get page HTML failed: {e}")
-        return "ERR"
+    if reduce_noise:
+        return await manager.get_page_html_cleaned(True, ctx)
+    else:
+        return await manager.get_page_html_raw(ctx)
+
+@mcp.tool()
+async def get_page_url(ctx: Context = None) -> MCPResponse:
+    """
+    Get the current page URL.
+    
+    This tool returns only the URL of the current browser page. This is very efficient
+    as it only retrieves the URL without any other page processing.
+    
+    Returns:
+        MCPResponse: Response object with status, payload (URL string), and error fields.
+    
+    Example:
+        get_page_url()  # Returns something like "https://example.com/page"
+    
+    Note:
+        This is the most efficient tool if you only need the current URL.
+    """
+    return await manager.get_page_url(ctx)
+
+@mcp.tool()
+async def get_page_title(ctx: Context = None) -> MCPResponse:
+    """
+    Get the current page title.
+    
+    This tool returns only the title of the current browser page. This is efficient
+    as it only retrieves the title without processing HTML content or taking screenshots.
+    
+    Returns:
+        MCPResponse: Response object with status, payload (title string), and error fields.
+    
+    Example:
+        get_page_title()  # Returns something like "Example Page Title"
+    
+    Note:
+        This is efficient if you only need the page title for navigation or identification.
+    """
+    return await manager.get_page_title(ctx)
 
 if __name__ == "__main__":
     print("Playwright MCP on", f"{MCP_HOST}:{MCP_PORT}")
