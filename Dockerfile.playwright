@@ -1,61 +1,56 @@
 # syntax=docker/dockerfile:1.4
 
 #############################
-# 🛠 Builder Stage
+# 🧱 Builder
 #############################
-FROM python:3.12-slim AS builder
-
+FROM mcr.microsoft.com/playwright:v1.55.0-noble AS builder
+USER root
 WORKDIR /app
 
-# Install build-time deps
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libffi-dev \
-    curl wget git bash \
+# Python runtime + poetry from apt (avoids PEP 668)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 python3-venv python3-pip python3-poetry curl git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Poetry
-RUN pip install --no-cache-dir poetry
-
-ENV PYTHONUNBUFFERED=1 \
+# Use a project venv so we never touch system site-packages
+ENV POETRY_VIRTUALENVS_CREATE=true \
+    POETRY_VIRTUALENVS_IN_PROJECT=true \
+    PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
-    POETRY_VIRTUALENVS_CREATE=false
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 COPY pyproject.toml poetry.lock* README.md ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/root/.cache/pypoetry \
+    poetry install --only main,playwright,mcp --no-interaction --no-ansi
 
-# Install main dependencies and playwright group
-RUN --mount=type=cache,target=/root/.cache/pypoetry \
-    --mount=type=cache,target=/root/.cache/pip \
-    poetry install --only main,playwright,mcp --no-root --no-interaction --no-ansi
-
-COPY . .
 
 #############################
-# 🚀 Runtime Stage
+# 🚀 Runtime
 #############################
-FROM python:3.12-slim
-
+FROM mcr.microsoft.com/playwright:v1.55.0-noble
+USER root
 WORKDIR /app
 
-# Install Chromium and runtime dependencies only
-RUN apt-get update && apt-get install -y \
-    chromium \
-    libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-    libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
-    libasound2 libpangocairo-1.0-0 libxshmfence1 libxss1 \
-    fonts-liberation libappindicator3-1 lsb-release xdg-utils \
+# Just minimal Python runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 python3-venv python3-pip curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+    PYTHONPATH=/app 
 
-# Copy Python dependencies and code
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Copy app + its venv from builder
 COPY --from=builder /app /app
+# Use the project venv
+ENV VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:${PATH}"
 
-# Create runtime folders
-RUN mkdir -p /app/files/downloads /app/screenshots
 
-CMD ["python", "--version"]
+# entrypoint
+RUN chmod +x /usr/local/bin/start.sh \
+ && mkdir -p /home/pwuser/screenshots /app/files/downloads /app/screenshots \
+ && chown -R pwuser:pwuser /home/pwuser /app
+
+USER pwuser
+CMD ["/usr/local/bin/start.sh"]

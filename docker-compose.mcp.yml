@@ -156,31 +156,27 @@ services:
   playwright-mcp:
     build:
       context: .
-      dockerfile: Dockerfile.alpine-glibc
-      args:
-        POETRY_GROUPS: "mcp,playwright"
-        IS_PROD: ${IS_PROD}
-        CMD_MODULE: "playwright_extension"
-        CMD_ARGS: ""
-        DEBUG_PY_ARGS: ""   
+      dockerfile: Dockerfile.playwright
     container_name: ohcm_playwright_mcp
     environment:
       - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-      - PLAYWRIGHT_BROWSER_WS_ENDPOINT=ws://ohcm_playwright_server:3000
-      - PYTHONPATH=/app
-    volumes:
-      - ./backend/src/mcp_servers:/app/mcp_servers
-      - ./screenshots:/app/screenshots
-    working_dir: /app/mcp_servers
-    # command: python playwright_extension.py
+      - MCP_PORT=8000      
+      - PLAYWRIGHT_SERVER_PORT=3001
+      - APP_CMD=python playwright_extension.py
     ports:
-      - "20011:5678"    # debugpy port for VS Code debugging
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      playwright-server:
-        condition: service_healthy
+      - "3001:3001"   # expose server API if you want
+    volumes:
+      - ./screenshots:/home/pwuser/screenshots
+      - ./backend/src/mcp_servers:/app/mcp_servers
+      - ./docker/start.sh:/usr/local/bin/start.sh
+    user: pwuser
+    working_dir: /app/mcp_servers
+    init: true
+    ipc: host
+    security_opt:
+      - seccomp=seccomp_profile.json
+    restart: unless-stopped
+
 
   file-storage-mcp:
     build:
@@ -205,29 +201,6 @@ services:
     working_dir: /app/mcp_servers
 
 
-  playwright-server:
-    image: mcr.microsoft.com/playwright:v1.55.0-noble
-    container_name: ohcm_playwright_server
-    environment:
-      - PLAYWRIGHT_SERVER_PORT=3000
-    ports:
-      - "3000:3000"     # Playwright server port
-    volumes:
-      - ./screenshots:/home/pwuser/screenshots
-    working_dir: /home/pwuser
-    user: pwuser
-    init: true
-    ipc: host
-    security_opt:
-      - seccomp=seccomp_profile.json
-    command: >
-      sh -c "npx -y playwright@1.55.0 run-server --port 3000 --host 0.0.0.0"
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
 
   # kafka-mcp:
   #   build:

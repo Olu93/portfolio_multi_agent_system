@@ -73,15 +73,6 @@ RUN echo "CMD_MODULE=$CMD_MODULE CMD_ARGS=$CMD_ARGS DEBUG_PY_ARGS=$DEBUG_PY_ARGS
 
 RUN echo "python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 ${DEBUG_PY_ARGS} -m ${CMD_MODULE} ${CMD_ARGS};"
 
-# CMD if [ "$IS_PROD" = "true" ]; then \
-#         python -m "${CMD_MODULE}" "${CMD_ARGS}"; \
-#     else \
-#         if [ -z "$CMD_ARGS" ]; then \
-#             python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 "${DEBUG_PY_ARGS}" -m "${CMD_MODULE}"; \
-#         else \
-#             python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 "${DEBUG_PY_ARGS}" -m "${CMD_MODULE}" "${CMD_ARGS}"; \
-#         fi; \
-#     fi
 
 # Replace your CMD with this
 CMD ["sh","-lc","\
