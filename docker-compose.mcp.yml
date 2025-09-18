@@ -22,7 +22,6 @@ services:
       - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
     command: npx @modelcontextprotocol/inspector
-    restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -59,7 +58,6 @@ services:
     volumes:
       - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
-    restart: unless-stopped
 
   yfinance-mcp:
     build:
@@ -81,7 +79,6 @@ services:
     volumes:
       - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
-    restart: unless-stopped
     
   smtp-mcp:
     build:
@@ -109,7 +106,6 @@ services:
     volumes:
       - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
-    restart: unless-stopped
 
   serper-mcp:
     build:
@@ -133,7 +129,6 @@ services:
       - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
     # command: python serper-official.py
-    restart: unless-stopped
 
   duckduckgo-mcp:
     build:
@@ -155,27 +150,37 @@ services:
     volumes:
       - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
-    restart: unless-stopped
+
+
 
   playwright-mcp:
     build:
       context: .
-      dockerfile: Dockerfile.playwright
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "mcp,playwright"
+        IS_PROD: ${IS_PROD}
+        CMD_MODULE: "playwright_extension"
+        CMD_ARGS: ""
+        DEBUG_PY_ARGS: ""   
     container_name: ohcm_playwright_mcp
     environment:
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-      - PLAYWRIGHT_BROWSER_WS_ENDPOINT=${PLAYWRIGHT_BROWSER_WS_ENDPOINT:-ws://host.docker.internal:9222}
+      - PLAYWRIGHT_BROWSER_WS_ENDPOINT=ws://ohcm_playwright_server:3000
       - PYTHONPATH=/app
     volumes:
       - ./backend/src/mcp_servers:/app/mcp_servers
       - ./screenshots:/app/screenshots
     working_dir: /app/mcp_servers
-    command: python playwright_extension.py
+    # command: python playwright_extension.py
     ports:
       - "20011:5678"    # debugpy port for VS Code debugging
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      playwright-server:
+        condition: service_healthy
 
   file-storage-mcp:
     build:
@@ -184,7 +189,7 @@ services:
       args:
         POETRY_GROUPS: "mcp"
         IS_PROD: ${IS_PROD}
-        CMD_MODULE: file_storage
+        CMD_MODULE: "file_storage"
         CMD_ARGS: ""
         DEBUG_PY_ARGS: ""
     container_name: ohcm_file_storage_mcp
@@ -198,7 +203,31 @@ services:
       - ./backend/src/mcp_servers:/app/mcp_servers
       - ./files:/app/files
     working_dir: /app/mcp_servers
-    restart: unless-stopped
+
+
+  playwright-server:
+    image: mcr.microsoft.com/playwright:v1.55.0-noble
+    container_name: ohcm_playwright_server
+    environment:
+      - PLAYWRIGHT_SERVER_PORT=3000
+    ports:
+      - "3000:3000"     # Playwright server port
+    volumes:
+      - ./screenshots:/home/pwuser/screenshots
+    working_dir: /home/pwuser
+    user: pwuser
+    init: true
+    ipc: host
+    security_opt:
+      - seccomp=seccomp_profile.json
+    command: >
+      sh -c "npx -y playwright@1.55.0 run-server --port 3000 --host 0.0.0.0"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # kafka-mcp:
   #   build:
