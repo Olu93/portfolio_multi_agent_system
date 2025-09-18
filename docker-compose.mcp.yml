@@ -156,7 +156,7 @@ services:
   playwright-mcp:
     build:
       context: .
-      dockerfile: Dockerfile.base
+      dockerfile: Dockerfile.alpine-glibc
       args:
         POETRY_GROUPS: "mcp,playwright"
         IS_PROD: ${IS_PROD}

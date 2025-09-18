@@ -1,0 +1,65 @@
+# syntax=docker/dockerfile:1.4
+
+#############################
+# 🛠 Builder
+#############################
+FROM frolvlad/alpine-glibc AS builder
+WORKDIR /app
+ARG POETRY_GROUPS="main"
+
+# Python + build deps + venv
+RUN apk add --no-cache \
+  python3 py3-pip py3-virtualenv python3-dev \
+  build-base libffi-dev openssl-dev curl wget git
+
+# Create venv and install Poetry inside it
+ENV VENV=/opt/venv
+RUN python3 -m venv "$VENV"
+ENV PATH="$VENV/bin:$PATH" \
+    POETRY_VIRTUALENVS_CREATE=false \
+    PYTHONUNBUFFERED=1 PYTHONPATH=/app
+
+RUN pip install --no-cache-dir poetry
+
+COPY ./pyproject.toml ./poetry.lock ./backend/README.md ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/root/.cache/pypoetry \
+    poetry install --only main,${POETRY_GROUPS},debug --no-root --no-interaction --no-ansi
+
+# If your install needs the source:
+# COPY . .
+
+#############################
+# 🚀 Runtime
+#############################
+FROM frolvlad/alpine-glibc
+WORKDIR /app
+
+# Python runtime libs
+RUN apk add --no-cache python3 libffi openssl
+
+# Use the venv from builder
+ENV VENV=/opt/venv \
+    PATH="$VENV/bin:$PATH" \
+    PYTHONUNBUFFERED=1 PYTHONPATH=/app
+
+COPY --from=builder /opt/venv /opt/venv
+# COPY your app code if not already copied in builder
+# COPY ./backend/src/mcp_servers /app/mcp_servers
+
+RUN mkdir -p /app/files/downloads /app/screenshots
+
+ARG IS_PROD="true" CMD_MODULE="" CMD_ARGS="" DEBUG_PY_ARGS=""
+ENV IS_PROD=${IS_PROD} CMD_MODULE=${CMD_MODULE} CMD_ARGS=${CMD_ARGS} DEBUG_PY_ARGS=${DEBUG_PY_ARGS}
+RUN test -n "$CMD_MODULE" || (echo "ERROR: CMD_MODULE is required"; exit 1)
+
+CMD ["sh","-lc","\
+if [ \"$IS_PROD\" = \"true\" ]; then \
+  set -- python3 -m \"$CMD_MODULE\"; \
+else \
+  set -- python3 -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678; \
+  for a in $DEBUG_PY_ARGS; do set -- \"$@\" \"$a\"; done; \
+  set -- \"$@\" -m \"$CMD_MODULE\"; \
+fi; \
+for a in $CMD_ARGS; do set -- \"$@\" \"$a\"; done; \
+exec \"$@\""]
