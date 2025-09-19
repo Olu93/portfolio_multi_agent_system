@@ -169,13 +169,13 @@ services:
     volumes:
       - ./screenshots:/home/pwuser/screenshots
       - ./backend/src/mcp_servers:/app/mcp_servers
-      - ./docker/start.sh:/usr/local/bin/start.sh
+      - ./docker/scripts/start.sh:/usr/local/bin/start.sh
     user: pwuser
     working_dir: /app/mcp_servers
     init: true
     ipc: host
     security_opt:
-      - seccomp=seccomp_profile.json
+      - seccomp=docker/configs/seccomp_profile.json
 
 
   file-storage-mcp:
