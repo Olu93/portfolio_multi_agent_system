@@ -13,7 +13,10 @@ from email.mime.base import MIMEBase
 from email import encoders
 from dotenv import load_dotenv, find_dotenv
 import aiosmtplib
+from utils.helper import log
+import logging
 
+logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv(find_dotenv())
 
@@ -191,7 +194,7 @@ try:
 except Exception as e:
     smtp_server = None
     smtp_configured = False
-    print(f"Warning: SMTP server not configured: {e}")
+    log(f"Warning: SMTP server not configured: {e}", "warning", logger, None)
 
 
 
@@ -418,12 +421,12 @@ async def validate_email_address(email: str, ctx: Context) -> str:
 if __name__ == "__main__":
     
     if not smtp_configured:
-        print("WARNING: SMTP server is not properly configured!")
+        log("WARNING: SMTP server is not properly configured!", "warning", logger, None)
     
     try:
         mcp.run(transport="streamable-http")
     except Exception as e:
-        traceback.print_exc()
+        log(f"Server crashed: {str(e)}", "exception", logger, None, exception=e)
         raise
     finally:
-        print("=== SMTP MCP Server shutting down ===")
+        log("=== SMTP MCP Server shutting down ===", "info", logger, None)
