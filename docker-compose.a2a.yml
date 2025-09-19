@@ -45,29 +45,6 @@ services:
       retries: 3
       start_period: 30s
 
-  agent-serve:
-    build:
-      context: .
-      dockerfile: Dockerfile.base
-      args:
-        POETRY_GROUPS: "a2a"
-        IS_PROD: ${IS_PROD}
-        CMD_MODULE: "uvicorn"
-        CMD_ARGS: "serve.run:app --host 0.0.0.0 --port 9002"
-    container_name: ohcm_agent_serve
-    environment:
-      - PYTHONPATH=/app
-      - A2A_AGENT_URL=http://ohcm_supervisor_agent:10020
-    ports:
-      - "9002:9002"
-      - "22222:5678"    # debugpy port for VS Code debugging
-    volumes:
-      - ./backend/src/serve:/app/serve
-    working_dir: /app
-    # command: uvicorn serve.run:app --host 0.0.0.0 --port 9002
-    depends_on:
-      supervisor-agent:
-        condition: service_healthy
 
   supervisor-agent:
     build:

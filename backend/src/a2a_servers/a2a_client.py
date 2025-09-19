@@ -1,9 +1,9 @@
 import asyncio
 from datetime import datetime, timezone
-import logging
+import json
 
 import re
-from typing import Annotated, Any, AsyncIterator, Optional, AsyncIterable, Callable, TypedDict
+from typing import Any, AsyncIterator, Optional, AsyncIterable
 from abc import abstractmethod
 from uuid import uuid4
 
@@ -13,6 +13,7 @@ from a2a.client import A2ACardResolver, A2AClient
 from a2a.types import (
     MessageSendParams,
     SendStreamingMessageRequest,
+    SendStreamingMessageResponse,
     Artifact,
     Part,
     TextPart,
@@ -22,6 +23,9 @@ from a2a.types import (
     AgentCard,
     AgentSkill,
     AgentCapabilities,
+    TaskArtifactUpdateEvent,
+    TaskStatusUpdateEvent,
+    Task,
 )
 from a2a.server.agent_execution import RequestContext, AgentExecutor
 from a2a.server.apps import A2AStarletteApplication
@@ -31,8 +35,6 @@ from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
-from langgraph.graph import add_messages
-from pydantic import BaseModel, Field
 from a2a.utils import new_agent_text_message, new_task
 from a2a.utils.constants import (
     AGENT_CARD_WELL_KNOWN_PATH,
@@ -48,36 +50,14 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.requests import Request
 from a2a_servers.config_loader import load_prompt_config, load_model_config
-from a2a.types import MessageSendParams, SendStreamingMessageRequest, Task, Message, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TaskState
+from a2a_servers.utils.models import A2AClientResponse, AuthHeaderCb, ChatResponse, ChunkMetadata, ChunkResponse, ToolEmission, State
+import logging
+
 logger = logging.getLogger(__name__)
 
 
-# --- Stream chunk model ------------------------------------------------------
-A2AClientResponse = Task | Message | TaskStatusUpdateEvent | TaskArtifactUpdateEvent
-
-class State(TypedDict):
-    messages: Annotated[list, add_messages]
-    task_id: Annotated[str|None, lambda old, new: new if new is not None else old]
-
-class ChunkMetadata(BaseModel):
-    message_type: str = Field("message", example="tool_stream")
-    step_number: int = Field(0, example=0)
-    error: Optional[str] = None
-
-class ChunkResponse(BaseModel):
-    status: TaskState = Field(..., example=TaskState.working)
-    content: str
-    tool_name: Optional[str] = None
-    metadata: ChunkMetadata = Field(..., example={"message_type": "tool_stream", "step_number": 0, "sub_task_id": "123"})
-
-class ToolEmission(BaseModel):
-    tool: str = Field(..., description="The name of the tool that emitted the event", example="tool_name")
-    text: str = Field(..., description="The text of the event", example="text")
-    state: TaskState = Field(..., description="The status of the event", example=TaskState.working)
-    timestamp: str = Field(..., description="The timestamp of the event in iso format", example="2025-09-08T02:45:12.964656+00:00")
 
 
-AuthHeaderCb = Callable[[str], dict[str, str]]
 
 
 # --- Tool factory from AgentCards -------------------------------------------
@@ -548,3 +528,61 @@ class BaseAgentExecutor(AgentExecutor):
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         pass
+
+
+# --- A2A Client ----------------------------------------------------------
+async def async_send_message_streaming(
+    agent_url: str, message: str, context_id: str | None, task_id: str | None
+):
+    timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as httpx_client:
+        resolver = A2ACardResolver(
+            httpx_client=httpx_client,
+            base_url=agent_url,
+            agent_card_path=AGENT_CARD_WELL_KNOWN_PATH,
+        )
+
+        public_card = await resolver.get_agent_card()
+        final_card = public_card
+
+        if getattr(public_card, "supports_authenticated_extended_card", False):
+            try:
+                extended = await resolver.get_agent_card(
+                    relative_card_path=EXTENDED_AGENT_CARD_PATH,
+                )
+                final_card = extended
+            except Exception:
+                pass  # fall back to public card
+
+        client = A2AClient(httpx_client=httpx_client, agent_card=final_card)
+
+        payload = new_agent_text_message(message, context_id=context_id or str(uuid4()))
+        params = MessageSendParams(message=payload)
+        req = SendStreamingMessageRequest(id=str(uuid4()), params=params)
+
+        stream = client.send_message_streaming(req)
+        async for chunk in stream:
+            # yield each chunk as JSON lines (NDJSON)
+            chunk: SendStreamingMessageResponse = chunk
+            result: A2AClientResponse = chunk.root.result
+            logger.info(f"Received message of type: {type(result)}")
+            response = ''
+            if isinstance(result, TaskStatusUpdateEvent):
+                logger.info(f"Status of task: {result.status}")
+                status = result.status.state
+                response = result.status.message.parts[-1].root.text
+            elif isinstance(result, Task):
+                logger.info(f"Task: {result}")
+                status = result.status.state
+                # response = result.status.message.parts[-1].text
+                continue
+            elif isinstance(result, TaskArtifactUpdateEvent):
+                logger.info(f"Artifact of task: {result.artifact}")
+                status = TaskState.working
+                continue
+            else:
+                logger.error(f"Unknown result type: {type(result)}")
+                status = TaskState.unknown
+                continue
+            chunk_normalized = ChatResponse(response=response, conversation_id=context_id, status=status)
+            yield json.dumps(chunk_normalized.model_dump(mode="python", exclude_none=True)) + "\n"

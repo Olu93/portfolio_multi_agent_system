@@ -3,39 +3,29 @@
 # Author: Sreeni Ramadurai 
 # https://dev.to/sreeni5018/building-an-ai-agent-registry-server-with-fastapi-enabling-seamless-agent-discovery-via-a2a-15dj
 
+import json
 import os
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from pydantic import  HttpUrl
 import time
 import asyncio
-from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
-
+import requests
 import logging
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+
 from python_a2a import AgentCard
 from python_a2a.discovery import AgentRegistry
 
-from dotenv import load_dotenv
 
-load_dotenv()
+from a2a_servers.a2a_client import async_send_message_streaming
+from a2a_servers.utils.models import AgentRegistration, ChatReq, HeartbeatRequest, LookupRequest
+
 logger = logging.getLogger(__name__)    
 
-# Data model for Agent registration
-class AgentRegistration(BaseModel):
-    name: str
-    description: str
-    url: str
-    version: str
-    capabilities: dict = {}
-    skills: List[dict] = []
 
-class HeartbeatRequest(BaseModel):
-    url: str
-
-class LookupRequest(BaseModel):
-    url: str
 
 # Create registry server and FastAPI app
 registry_server = AgentRegistry(
@@ -46,15 +36,30 @@ registry_server = AgentRegistry(
 # Constants for cleanup
 HEARTBEAT_TIMEOUT = 30  # seconds
 CLEANUP_INTERVAL = 10   # seconds
+A2A_AGENT_URL = os.getenv("A2A_AGENT_URL", "http://ohcm_supervisor_agent:10020")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start the cleanup task when the server starts."""
     cleanup_task = asyncio.create_task(cleanup_stale_agents())
+    logger.info("Starting A2A Chat Service")
+    logger.info(f"Serving agent at: {A2A_AGENT_URL}")
+    res = requests.get(f"{A2A_AGENT_URL}/health")
+    logger.info(f"Health check response: {res.json()}")    
     yield
+    logger.info("Shutting down A2A Chat Service")
     cleanup_task.cancel()
 
 app = FastAPI(title="A2A Agent Registry Server", description="FastAPI server for agent discovery", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure this to your frontend URL in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 async def cleanup_stale_agents():
     """Periodically clean up agents that haven't sent heartbeats."""
@@ -86,7 +91,7 @@ async def register_agent(registration: AgentRegistration):
     registry_server.register_agent(agent_card)
     return agent_card
 
-@app.get("/registry/agents", response_model=List[AgentCard])
+@app.get("/registry/agents", response_model=list[AgentCard])
 async def list_registered_agents():
     """Lists all currently registered agents."""
     return list(registry_server.get_all_agents())
@@ -120,12 +125,42 @@ async def heartbeat(request: HeartbeatRequest):
         return {"success": False, "error": str(e)}, 400
 
 @app.get("/registry/agents/{url}", response_model=AgentCard)
-async def get_agent(url: str):
+async def get_agent(url: HttpUrl):
     """Get a specific agent by URL."""
     agent = registry_server.get_agent(url)
     if agent:
         return agent
     raise HTTPException(status_code=404, detail=f"Agent with URL '{url}' not found")
+
+
+@app.post("/chat/stream")
+async def chat_stream(body: ChatReq):
+    agent_url = A2A_AGENT_URL
+
+    async def gen():
+        async for line in async_send_message_streaming(
+            agent_url=agent_url,
+            message=body.message,
+            context_id=body.context_id,
+            task_id=body.task_id,
+        ):
+            yield line
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
+
+
+@app.post("/chat")
+async def chat_non_stream(body: ChatReq):
+    agent_url = A2A_AGENT_URL
+    lines = []
+    async for line in async_send_message_streaming(
+        agent_url=agent_url,
+        message=body.message,
+        context_id=body.context_id,
+        task_id=body.task_id,
+    ):
+        lines.append(json.loads(line))
+    return {"chunks": lines}
 
 if __name__ == "__main__":
     REGISTRY_HOST = os.getenv("HOST", "0.0.0.0")
