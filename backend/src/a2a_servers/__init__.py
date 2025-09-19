@@ -1,10 +1,9 @@
+import logging
 import os
 import sys
-import logging
 
 from colorlog import ColoredFormatter
-from dotenv import load_dotenv, find_dotenv
-
+from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv())
 

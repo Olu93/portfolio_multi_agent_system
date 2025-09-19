@@ -1,23 +1,25 @@
-from fastmcp import FastMCP, Context
-from mcp_servers.utils.models import MCPResponse
-from mcp_servers.utils.helper import log, start_mcp_server
-from mcp_servers.utils.constants import MCP_HOST, MCP_PORT
-import os
-import logging
 import asyncio
-import traceback
+import logging
+import os
 import sys
-from typing import List, Optional, Dict, Any, Literal
+import traceback
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Literal, Optional
+
 from caldav import DAVClient
-from caldav.elements import dav, cdav
 from caldav.calendarobjectresource import Event
 from caldav.collection import Calendar as CalDAVCalendar
+from caldav.elements import cdav, dav
+from fastmcp import Context, FastMCP
 from icalendar import Calendar
 from icalendar.cal import Component
-from icalendar.prop import vDDDTypes, TimeBase, vCategory
+from icalendar.prop import TimeBase, vCategory, vDDDTypes
 from pydantic import BaseModel, Field
+
+from mcp_servers.utils.constants import MCP_HOST, MCP_PORT
+from mcp_servers.utils.helper import log, start_mcp_server
+from mcp_servers.utils.models import MCPResponse
 
 logger = logging.getLogger(__name__)
 
@@ -376,8 +378,9 @@ class CalDAVServer:
         - Checks shared calendars in self.calendars
         Returns busy periods as CalEventEntryContract list.
         """
-        import requests
         from urllib.parse import urljoin
+
+        import requests
 
         busy_entries: list[CalEventEntryContract] = []
 

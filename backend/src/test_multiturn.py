@@ -15,8 +15,8 @@ import logging
 import uuid
 from typing import AsyncIterable
 
-from a2a_servers.a2a_client import A2ASubAgentClient, A2AClientResponse
 from a2a.types import TaskState
+from a2a_servers.a2a_client import A2AClientResponse, A2ASubAgentClient
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

@@ -3,22 +3,21 @@
 # Author: Sreeni Ramadurai
 # https://dev.to/sreeni5018/building-an-ai-agent-registry-server-with-fastapi-enabling-seamless-agent-discovery-via-a2a-15dj
 
+import asyncio
 import json
+import logging
 import os
+import time
+from contextlib import asynccontextmanager
+
+import requests
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from pydantic import HttpUrl
-import time
-import asyncio
-from contextlib import asynccontextmanager
-import requests
-import logging
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-
+from pydantic import HttpUrl
 from python_a2a import AgentCard
 from python_a2a.discovery import AgentRegistry
-
 
 from a2a_servers.a2a_client import async_send_message_streaming
 from a2a_servers.utils.models import AgentRegistration, ChatReq, HeartbeatRequest, LookupRequest

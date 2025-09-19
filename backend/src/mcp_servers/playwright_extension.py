@@ -1,17 +1,20 @@
-import os, json, asyncio
+import asyncio
+import base64
+import json
+import logging
+import os
 from dataclasses import dataclass
-from typing import Literal, Optional, Dict
-from fastmcp import FastMCP, Context
-from playwright.async_api import async_playwright, Browser, Page
+from typing import Dict, Literal, Optional
+
+from fastmcp import Context, FastMCP
 from lxml import html
 from lxml_html_clean import Cleaner
-import base64
 from markdownify import markdownify as md
+from playwright.async_api import Browser, Page, async_playwright
 
-from mcp_servers.utils.models import MCPResponse
-from mcp_servers.utils.helper import log, start_mcp_server
 from mcp_servers.utils.constants import MCP_HOST, MCP_PORT
-import logging
+from mcp_servers.utils.helper import log, start_mcp_server
+from mcp_servers.utils.models import MCPResponse
 
 logger = logging.getLogger(__name__)
 PW_CHANNEL = os.getenv("PLAYWRIGHT_CHANNEL")  # e.g., "chrome"
