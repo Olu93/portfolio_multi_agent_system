@@ -58,6 +58,7 @@ class SupervisorAgent(BaseAgent):
         return self.model
 
     async def build_tools(self) -> list[StructuredTool]:
+        # BLOG: Explain that these tools are built from the registry once. New tools require restart. Explain how dynamic tools could be built on the fly and benefits and disadvantages.
         allow_urls = set(self.agent_config.get("allow_urls", []) or [])
         allow_caps = set(self.agent_config.get("allow_caps", []) or [])
         self.sub_agent_client = A2ASubAgentClient(httpx_client=httpx_client)
