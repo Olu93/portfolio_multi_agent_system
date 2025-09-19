@@ -34,7 +34,6 @@ services:
   #   volumes:
   #     - ./lingua_scraper:/app/lingua_scraper
   #     - ./backend/configs/sensitive/config.inspector.json:/app/config.inspector.json
-  #   restart: unless-stopped
   #   networks:
   #     - ${NETWORK_NAME}
 
@@ -151,6 +150,20 @@ services:
       - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
 
+  postgres-mcp:
+    image: crystaldba/postgres-mcp
+    container_name: ohcm_postgres_mcp
+    depends_on:
+      - db
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      - DATABASE_URI=postgres://app:app@db:5432/app
+    volumes:
+      - ./backend/src/mcp_servers:/app/mcp_servers
+    working_dir: /app/mcp_servers
+    command: ["--access-mode=unrestricted", "--transport=sse"]
+
 
 
   playwright-mcp:
@@ -175,7 +188,6 @@ services:
     ipc: host
     security_opt:
       - seccomp=seccomp_profile.json
-    restart: unless-stopped
 
 
   file-storage-mcp:
@@ -192,6 +204,7 @@ services:
     environment:
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
+      - DEFAULT_STORAGE_PATH=/app/files/downloads
       - PYTHONPATH=/app
     ports:
       - "20012:5678"    # debugpy port for VS Code debugging
@@ -218,7 +231,6 @@ services:
   #     - ./backend/src/mcp_servers:/app/mcp_servers
   #   working_dir: /app/mcp_servers
   #   command: python kafka.py
-  #   restart: unless-stopped
   #   networks:
   #     - mcp-network
   #   depends_on:
@@ -256,7 +268,6 @@ services:
   # mongodb:
   #   image: mongo:7.0
   #   container_name: mongodb-mcp
-  #   restart: unless-stopped
   #   environment:
   #     MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-admin}
   #     MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-password}
@@ -272,7 +283,6 @@ services:
   # postgres:
   #   image: postgres:17
   #   container_name: postgres-mcp
-  #   restart: unless-stopped
   #   environment:
   #     POSTGRES_DB: ${POSTGRES_DB:-postgres}
   #     POSTGRES_USER: ${POSTGRES_USER:-postgres}
