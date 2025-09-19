@@ -70,7 +70,7 @@ debugpy = "^1.8.16"
 
 
 [tool.ruff]
-line-length = 100
+line-length = 150
 target-version = "py312"
 
 [tool.ruff.lint]
