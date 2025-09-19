@@ -2,7 +2,7 @@ from typing import Annotated, Callable, Optional, TypedDict
 
 from a2a.types import Message, Task, TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent
 from langgraph.graph import add_messages
-from pydantic import AnyHttpUrl, BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 
 A2AClientResponse = Task | Message | TaskStatusUpdateEvent | TaskArtifactUpdateEvent
 

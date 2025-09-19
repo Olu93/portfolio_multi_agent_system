@@ -5,7 +5,6 @@ Combines FastMCP with comprehensive financial analysis capabilities
 """
 
 import asyncio
-import json
 import logging
 import time
 from datetime import datetime

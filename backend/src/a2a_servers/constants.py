@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 
-import yaml
 
 from a2a_servers import configure_logging
 

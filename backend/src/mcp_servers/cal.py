@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Literal, Optional
 from caldav import DAVClient
 from caldav.calendarobjectresource import Event
 from caldav.collection import Calendar as CalDAVCalendar
-from caldav.elements import cdav, dav
 from fastmcp import Context, FastMCP
 from icalendar import Calendar
 from icalendar.cal import Component
@@ -378,9 +377,7 @@ class CalDAVServer:
         - Checks shared calendars in self.calendars
         Returns busy periods as CalEventEntryContract list.
         """
-        from urllib.parse import urljoin
 
-        import requests
 
         busy_entries: list[CalEventEntryContract] = []
 

@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 import uuid
-from typing import Any, AsyncIterable, Dict, List
+from typing import Any, AsyncIterable
 from urllib.parse import urlparse
 
 import click
@@ -15,17 +15,16 @@ from a2a.types import (
     TaskState,
 )
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools.structured import StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from a2a_servers.a2a_client import (
     A2ASubAgentClient,
     BaseAgent,
-    BaseAgentExecutor,
     ChunkMetadata,
     ChunkResponse,
     State,
@@ -122,7 +121,7 @@ class SupervisorAgent(BaseAgent):
                 continue
 
             # mode == "values" → graph state snapshot
-            item: Dict[str, Any] = payload
+            item: dict[str, Any] = payload
             messages = item.get("messages", [])
             if not messages:
                 continue
