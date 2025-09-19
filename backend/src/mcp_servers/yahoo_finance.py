@@ -28,20 +28,21 @@ def fetch_ticker(symbol: str) -> Ticker:
     """Helper to safely fetch a yfinance Ticker"""
     return Ticker(symbol.upper())
 
+
 def safe_get_price(ticker: Ticker) -> float:
     """Safely retrieve current stock price"""
     try:
         # Try current price from info first
         info = ticker.info
-        price = info.get('regularMarketPrice') or info.get('currentPrice')
+        price = info.get("regularMarketPrice") or info.get("currentPrice")
         if price is not None:
             return float(price)
-        
+
         # Fallback to recent history
         data = ticker.history(period="1d")
         if not data.empty:
-            return float(data['Close'].iloc[-1])
-        
+            return float(data["Close"].iloc[-1])
+
         raise ValueError("No price data available")
     except Exception as e:
         logger.error(f"Error retrieving price: {e}")
@@ -53,7 +54,7 @@ def validate_ticker(symbol: str) -> bool:
     try:
         ticker = fetch_ticker(symbol)
         info = ticker.info
-        valid = bool(info and info.get('regularMarketPrice') is not None)
+        valid = bool(info and info.get("regularMarketPrice") is not None)
         if not valid:
             logger.debug(f"Ticker '{symbol}' invalid or no price data")
         return valid
@@ -61,14 +62,11 @@ def validate_ticker(symbol: str) -> bool:
         logger.debug(f"Error validating ticker '{symbol}': {e}")
         return False
 
+
 def format_response(data: Any, success: bool = True, message: str = "") -> MCPResponse:
     """Standardized response format"""
     if success:
-        payload = {
-            'data': data,
-            'message': message,
-            'timestamp': datetime.now().isoformat()
-        }
+        payload = {"data": data, "message": message, "timestamp": datetime.now().isoformat()}
         return MCPResponse(status="OK", payload=payload)
     else:
         return MCPResponse(status="ERR", error=message or "An error occurred")
@@ -78,17 +76,17 @@ class TechnicalIndicators:
     """
     Class that provides various technical indicators and analysis tools for stock data.
     """
-    
+
     @staticmethod
     def get_stock_data(symbol: str, period: str = "6mo", interval: str = "1d") -> pd.DataFrame:
         """
         Retrieve historical stock data for technical analysis.
-        
+
         Args:
             symbol: Stock ticker symbol
             period: Data period (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max)
             interval: Data interval (1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo)
-            
+
         Returns:
             DataFrame with historical stock data
         """
@@ -100,183 +98,175 @@ class TechnicalIndicators:
             return data
         except Exception as e:
             raise ValueError(f"Error retrieving data for {symbol}: {e}")
-    
+
     @staticmethod
-    def calculate_moving_average(data: pd.DataFrame, window: int, column: str = 'Close') -> pd.Series:
+    def calculate_moving_average(data: pd.DataFrame, window: int, column: str = "Close") -> pd.Series:
         """
         Calculate simple moving average.
-        
+
         Args:
             data: DataFrame with price data
             window: Period for moving average
             column: Column name to calculate MA for (default: Close)
-            
+
         Returns:
             Series with moving average values
         """
         return data[column].rolling(window=window).mean()
-    
+
     @staticmethod
-    def calculate_exponential_moving_average(data: pd.DataFrame, window: int, column: str = 'Close') -> pd.Series:
+    def calculate_exponential_moving_average(data: pd.DataFrame, window: int, column: str = "Close") -> pd.Series:
         """
         Calculate exponential moving average.
-        
+
         Args:
             data: DataFrame with price data
             window: Period for EMA
             column: Column name to calculate EMA for (default: Close)
-            
+
         Returns:
             Series with EMA values
         """
         return data[column].ewm(span=window, adjust=False).mean()
-    
+
     @staticmethod
-    def calculate_rsi(data: pd.DataFrame, window: int = 14, column: str = 'Close') -> pd.Series:
+    def calculate_rsi(data: pd.DataFrame, window: int = 14, column: str = "Close") -> pd.Series:
         """
         Calculate Relative Strength Index (RSI).
-        
+
         Args:
             data: DataFrame with price data
             window: RSI period (default: 14)
             column: Column name to calculate RSI for (default: Close)
-            
+
         Returns:
             Series with RSI values
         """
         delta = data[column].diff()
         gain = delta.where(delta > 0, 0)
         loss = -delta.where(delta < 0, 0)
-        
+
         avg_gain = gain.rolling(window=window).mean()
         avg_loss = loss.rolling(window=window).mean()
-        
-        
-        for i in range(window, len(delta)):
-            if i > window:  
-                avg_gain.iloc[i] = (avg_gain.iloc[i-1] * (window-1) + gain.iloc[i]) / window
-                avg_loss.iloc[i] = (avg_loss.iloc[i-1] * (window-1) + loss.iloc[i]) / window
 
-        
+        for i in range(window, len(delta)):
+            if i > window:
+                avg_gain.iloc[i] = (avg_gain.iloc[i - 1] * (window - 1) + gain.iloc[i]) / window
+                avg_loss.iloc[i] = (avg_loss.iloc[i - 1] * (window - 1) + loss.iloc[i]) / window
+
         rs = avg_gain / avg_loss
         rsi = 100 - (100 / (1 + rs))
         return rsi
-    
+
     @staticmethod
-    def calculate_macd(data: pd.DataFrame, fast_period: int = 12, slow_period: int = 26, 
-                      signal_period: int = 9, column: str = 'Close') -> Dict[str, pd.Series]:
+    def calculate_macd(
+        data: pd.DataFrame,
+        fast_period: int = 12,
+        slow_period: int = 26,
+        signal_period: int = 9,
+        column: str = "Close",
+    ) -> Dict[str, pd.Series]:
         """
         Calculate Moving Average Convergence Divergence (MACD).
-        
+
         Args:
             data: DataFrame with price data
             fast_period: Fast EMA period (default: 12)
             slow_period: Slow EMA period (default: 26)
             signal_period: Signal line period (default: 9)
             column: Column name to calculate MACD for (default: Close)
-            
+
         Returns:
             Dictionary with 'macd', 'signal', and 'histogram' Series
         """
         fast_ema = TechnicalIndicators.calculate_exponential_moving_average(data, fast_period, column)
         slow_ema = TechnicalIndicators.calculate_exponential_moving_average(data, slow_period, column)
-        
+
         macd_line = fast_ema - slow_ema
         signal_line = macd_line.ewm(span=signal_period, adjust=False).mean()
         histogram = macd_line - signal_line
-        
-        return {
-            'macd': macd_line,
-            'signal': signal_line,
-            'histogram': histogram
-        }
-    
+
+        return {"macd": macd_line, "signal": signal_line, "histogram": histogram}
+
     @staticmethod
-    def calculate_bollinger_bands(data: pd.DataFrame, window: int = 20, 
-                                num_std: float = 2.0, column: str = 'Close') -> Dict[str, pd.Series]:
+    def calculate_bollinger_bands(data: pd.DataFrame, window: int = 20, num_std: float = 2.0, column: str = "Close") -> Dict[str, pd.Series]:
         """
         Calculate Bollinger Bands.
-        
+
         Args:
             data: DataFrame with price data
             window: Moving average period (default: 20)
             num_std: Number of standard deviations (default: 2.0)
             column: Column name for calculation (default: Close)
-            
+
         Returns:
             Dictionary with 'upper', 'middle', and 'lower' bands as Series
         """
         middle_band = TechnicalIndicators.calculate_moving_average(data, window, column)
         std_dev = data[column].rolling(window=window).std()
-        
+
         upper_band = middle_band + (std_dev * num_std)
         lower_band = middle_band - (std_dev * num_std)
-        
-        return {
-            'upper': upper_band,
-            'middle': middle_band,
-            'lower': lower_band
-        }
-    
+
+        return {"upper": upper_band, "middle": middle_band, "lower": lower_band}
+
     @staticmethod
     def calculate_atr(data: pd.DataFrame, window: int = 14) -> pd.Series:
         """
         Calculate Average True Range (ATR).
-        
+
         Args:
             data: DataFrame with price data
             window: ATR period (default: 14)
-            
+
         Returns:
             Series with ATR values
         """
-        high = data['High']
-        low = data['Low']
-        close = data['Close']
-        
+        high = data["High"]
+        low = data["Low"]
+        close = data["Close"]
+
         # Calculate True Range
         tr1 = high - low
         tr2 = abs(high - close.shift())
         tr3 = abs(low - close.shift())
-        
+
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         atr = tr.rolling(window=window).mean()
-        
+
         return atr
-    
+
     @staticmethod
-    def calculate_volatility(data: pd.DataFrame, window: int = 20, column: str = 'Close', 
-                           annualize: bool = True) -> pd.Series:
+    def calculate_volatility(data: pd.DataFrame, window: int = 20, column: str = "Close", annualize: bool = True) -> pd.Series:
         """
         Calculate rolling volatility.
-        
+
         Args:
             data: DataFrame with price data
             window: Period for volatility calculation (default: 20)
             column: Column name to calculate volatility for (default: Close)
             annualize: Whether to annualize the volatility (default: True)
-            
+
         Returns:
             Series with volatility values
         """
         # Calculate logarithmic returns
         log_returns = np.log(data[column] / data[column].shift(1))
-        
+
         # Calculate rolling standard deviation
         volatility = log_returns.rolling(window=window).std()
-        
+
         # Annualize if requested (assuming 252 trading days)
         if annualize:
-            if 'd' in data.index.freq or data.index.freq is None:  # Daily data
+            if "d" in data.index.freq or data.index.freq is None:  # Daily data
                 volatility = volatility * np.sqrt(252)
-            elif 'h' in data.index.freq:  # Hourly data
+            elif "h" in data.index.freq:  # Hourly data
                 volatility = volatility * np.sqrt(252 * 6.5)  # ~6.5 trading hours per day
-            elif 'm' in data.index.freq:  # Minute data
+            elif "m" in data.index.freq:  # Minute data
                 volatility = volatility * np.sqrt(252 * 6.5 * 60)
-                
+
         return volatility
-    
-    
+
     @staticmethod
     def detect_support_resistance(data: pd.DataFrame, window: int = 20, sensitivity: float = 0.03) -> Dict[str, List[float]]:
         """
@@ -284,173 +274,171 @@ class TechnicalIndicators:
         """
         try:
             if data is None or data.empty or len(data) < (2 * window + 1):
-                return {'support': [], 'resistance': []}
+                return {"support": [], "resistance": []}
 
-            high = data['High']
-            low = data['Low']
+            high = data["High"]
+            low = data["Low"]
 
             resistance_levels = []
             support_levels = []
 
             for i in range(window, len(high) - window):
-                if all(high[i] > high[i - j] for j in range(1, window + 1)) and \
-                all(high[i] > high[i + j] for j in range(1, window + 1)):
+                if all(high[i] > high[i - j] for j in range(1, window + 1)) and all(high[i] > high[i + j] for j in range(1, window + 1)):
                     if not any(abs(high[i] - level) / level < sensitivity for level in resistance_levels):
                         resistance_levels.append(high[i])
 
             for i in range(window, len(low) - window):
-                if all(low[i] < low[i - j] for j in range(1, window + 1)) and \
-                all(low[i] < low[i + j] for j in range(1, window + 1)):
+                if all(low[i] < low[i - j] for j in range(1, window + 1)) and all(low[i] < low[i + j] for j in range(1, window + 1)):
                     if not any(abs(low[i] - level) / level < sensitivity for level in support_levels):
                         support_levels.append(low[i])
 
-            return {
-                'support': sorted(support_levels),
-                'resistance': sorted(resistance_levels)
-            }
+            return {"support": sorted(support_levels), "resistance": sorted(resistance_levels)}
 
         except Exception as e:
             print(f"[ERROR] detect_support_resistance: {e}")
-            return {'support': [], 'resistance': []}
+            return {"support": [], "resistance": []}
 
-    
     @staticmethod
-    def detect_trends(data: pd.DataFrame, short_window: int = 20, long_window: int = 50, 
-                    column: str = 'Close') -> Dict[str, pd.Series]:
+    def detect_trends(data: pd.DataFrame, short_window: int = 20, long_window: int = 50, column: str = "Close") -> Dict[str, pd.Series]:
         """
         Detect trends using moving average crossovers.
-        
+
         Args:
             data: DataFrame with price data
             short_window: Short-term MA period (default: 20)
             long_window: Long-term MA period (default: 50)
             column: Column name to detect trends for (default: Close)
-            
+
         Returns:
             Dictionary with 'trend' and 'signal' Series
         """
         short_ma = TechnicalIndicators.calculate_moving_average(data, short_window, column)
         long_ma = TechnicalIndicators.calculate_moving_average(data, long_window, column)
-        
+
         # Create trend indicator (1: uptrend, -1: downtrend, 0: neutral/undefined)
         trend = pd.Series(0, index=data.index)
         trend[short_ma > long_ma] = 1  # Uptrend
         trend[short_ma < long_ma] = -1  # Downtrend
-        
+
         # Create signal for trend changes
         signal = pd.Series(0, index=data.index)
         signal[(trend.shift(1) <= 0) & (trend > 0)] = 1  # Buy signal (trend turning positive)
         signal[(trend.shift(1) >= 0) & (trend < 0)] = -1  # Sell signal (trend turning negative)
-        
-        return {
-            'trend': trend,
-            'signal': signal
-        }
-    
+
+        return {"trend": trend, "signal": signal}
+
     @staticmethod
     def calculate_pattern_recognition(data: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         Basic pattern recognition for common candlestick patterns.
-        
+
         Args:
             data: DataFrame with price data (must have Open, High, Low, Close)
-            
+
         Returns:
             Dictionary with pattern signals (1 where pattern is detected)
         """
         pattern_signals = {}
-        
+
         # Doji pattern (open and close are very close)
         doji = pd.Series(0, index=data.index)
-        body_size = abs(data['Close'] - data['Open'])
+        body_size = abs(data["Close"] - data["Open"])
         avg_body = body_size.rolling(window=14).mean()
-        shadow_size = data['High'] - data['Low']
+        shadow_size = data["High"] - data["Low"]
         doji[(body_size < 0.1 * shadow_size) & (body_size < 0.25 * avg_body)] = 1
-        pattern_signals['doji'] = doji
-        
+        pattern_signals["doji"] = doji
+
         # Hammer pattern (long lower shadow, small body at the top)
         hammer = pd.Series(0, index=data.index)
         lower_shadow = pd.Series(0, index=data.index)
         upper_shadow = pd.Series(0, index=data.index)
-        
+
         # For days with close > open (bullish)
-        bullish = data['Close'] > data['Open']
-        lower_shadow[bullish] = data['Open'][bullish] - data['Low'][bullish]
-        upper_shadow[bullish] = data['High'][bullish] - data['Close'][bullish]
-        
+        bullish = data["Close"] > data["Open"]
+        lower_shadow[bullish] = data["Open"][bullish] - data["Low"][bullish]
+        upper_shadow[bullish] = data["High"][bullish] - data["Close"][bullish]
+
         # For days with open > close (bearish)
-        bearish = data['Open'] > data['Close']
-        lower_shadow[bearish] = data['Close'][bearish] - data['Low'][bearish]
-        upper_shadow[bearish] = data['High'][bearish] - data['Open'][bearish]
-        
+        bearish = data["Open"] > data["Close"]
+        lower_shadow[bearish] = data["Close"][bearish] - data["Low"][bearish]
+        upper_shadow[bearish] = data["High"][bearish] - data["Open"][bearish]
+
         # Hammer criteria
-        body_height = abs(data['Close'] - data['Open'])
+        body_height = abs(data["Close"] - data["Open"])
         hammer[(lower_shadow > 2 * body_height) & (upper_shadow < 0.2 * body_height)] = 1
-        pattern_signals['hammer'] = hammer
-        
+        pattern_signals["hammer"] = hammer
+
         # Engulfing pattern (current candle completely engulfs previous candle)
         bullish_engulfing = pd.Series(0, index=data.index)
         bearish_engulfing = pd.Series(0, index=data.index)
-        
+
         # Bullish engulfing
-        bullish_engulfing[(data['Open'] < data['Close'].shift(1)) & 
-                         (data['Close'] > data['Open'].shift(1)) &
-                         (data['Close'] > data['Open']) &
-                         (data['Open'].shift(1) > data['Close'].shift(1))] = 1
-        
+        bullish_engulfing[
+            (data["Open"] < data["Close"].shift(1))
+            & (data["Close"] > data["Open"].shift(1))
+            & (data["Close"] > data["Open"])
+            & (data["Open"].shift(1) > data["Close"].shift(1))
+        ] = 1
+
         # Bearish engulfing
-        bearish_engulfing[(data['Open'] > data['Close'].shift(1)) & 
-                         (data['Close'] < data['Open'].shift(1)) &
-                         (data['Close'] < data['Open']) &
-                         (data['Open'].shift(1) < data['Close'].shift(1))] = 1
-        
-        pattern_signals['bullish_engulfing'] = bullish_engulfing
-        pattern_signals['bearish_engulfing'] = bearish_engulfing
-        
+        bearish_engulfing[
+            (data["Open"] > data["Close"].shift(1))
+            & (data["Close"] < data["Open"].shift(1))
+            & (data["Close"] < data["Open"])
+            & (data["Open"].shift(1) < data["Close"].shift(1))
+        ] = 1
+
+        pattern_signals["bullish_engulfing"] = bullish_engulfing
+        pattern_signals["bearish_engulfing"] = bearish_engulfing
+
         return pattern_signals
-    
+
     @staticmethod
     def detect_divergence(data: pd.DataFrame, indicator: pd.Series, window: int = 14) -> Dict[str, pd.Series]:
         """
         Detect divergence between price and indicator (e.g., RSI).
-        
+
         Args:
             data: DataFrame with price data
             indicator: Series with indicator values (e.g., RSI)
             window: Lookback period for finding pivots (default: 14)
-            
+
         Returns:
             Dictionary with 'bullish_divergence' and 'bearish_divergence' Series
         """
-        close = data['Close']
-        
+        close = data["Close"]
+
         bullish_divergence = pd.Series(0, index=data.index)
         bearish_divergence = pd.Series(0, index=data.index)
-        
+
         # Find local price lows and indicator lows
         for i in range(window, len(close) - window):
             # Check for price making lower low
-            if (close[i] < close[i-1]) and (close[i] < close[i+1]) and \
-               (close[i] < min(close[i-window:i])) and (close[i] < min(close[i+1:i+window+1])):
-                
+            if (
+                (close[i] < close[i - 1])
+                and (close[i] < close[i + 1])
+                and (close[i] < min(close[i - window : i]))
+                and (close[i] < min(close[i + 1 : i + window + 1]))
+            ):
                 # But indicator making higher low (bullish divergence)
-                if (indicator[i] > indicator[i-window]) and (indicator[i] > indicator[i-window//2]):
+                if (indicator[i] > indicator[i - window]) and (indicator[i] > indicator[i - window // 2]):
                     bullish_divergence[i] = 1
-        
+
         # Find local price highs and indicator highs
         for i in range(window, len(close) - window):
             # Check for price making higher high
-            if (close[i] > close[i-1]) and (close[i] > close[i+1]) and \
-               (close[i] > max(close[i-window:i])) and (close[i] > max(close[i+1:i+window+1])):
-                
+            if (
+                (close[i] > close[i - 1])
+                and (close[i] > close[i + 1])
+                and (close[i] > max(close[i - window : i]))
+                and (close[i] > max(close[i + 1 : i + window + 1]))
+            ):
                 # But indicator making lower high (bearish divergence)
-                if (indicator[i] < indicator[i-window]) and (indicator[i] < indicator[i-window//2]):
+                if (indicator[i] < indicator[i - window]) and (indicator[i] < indicator[i - window // 2]):
                     bearish_divergence[i] = 1
-        
-        return {
-            'bullish_divergence': bullish_divergence,
-            'bearish_divergence': bearish_divergence
-        }
+
+        return {"bullish_divergence": bullish_divergence, "bearish_divergence": bearish_divergence}
+
 
 class FinancialType(str, Enum):
     income_stmt = "income_stmt"
@@ -459,6 +447,7 @@ class FinancialType(str, Enum):
     quarterly_balance_sheet = "quarterly_balance_sheet"
     cashflow = "cashflow"
     quarterly_cashflow = "quarterly_cashflow"
+
 
 # Holder types
 class HolderType(str, Enum):
@@ -475,8 +464,10 @@ class RecommendationType(str, Enum):
     recommendations = "recommendations"
     upgrades_downgrades = "upgrades_downgrades"
 
+
 class ServerState:
     """Global state manager for MCP server."""
+
     def __init__(self):
         self.watchlist = set()
         self.watchlist_prices = {}
@@ -485,36 +476,31 @@ class ServerState:
         self.update_thread: Optional[Thread] = None
         self.running = True
         self._lock = Lock()
-    
+
     def add_to_cache(self, symbol: str, data: Any):
         """Add data to cache with timestamp"""
         with self._lock:
-            self.price_cache[symbol] = {
-                'data': data,
-                'timestamp': time.time()
-            }
-    
+            self.price_cache[symbol] = {"data": data, "timestamp": time.time()}
+
     def get_from_cache(self, symbol: str) -> Optional[Any]:
         """Get data from cache if not expired"""
         with self._lock:
             if symbol in self.price_cache:
                 cache_entry = self.price_cache[symbol]
-                if time.time() - cache_entry['timestamp'] < self.cache_timeout:
-                    return cache_entry['data']
+                if time.time() - cache_entry["timestamp"] < self.cache_timeout:
+                    return cache_entry["data"]
                 else:
                     del self.price_cache[symbol]
         return None
-    
+
     def cleanup_cache(self):
         """Remove expired cache entries"""
         current_time = time.time()
         with self._lock:
-            expired_keys = [
-                key for key, value in self.price_cache.items()
-                if current_time - value['timestamp'] > self.cache_timeout
-            ]
+            expired_keys = [key for key, value in self.price_cache.items() if current_time - value["timestamp"] > self.cache_timeout]
             for key in expired_keys:
                 del self.price_cache[key]
+
 
 # Initialize FastMCP server
 mcp = FastMCP(
@@ -545,9 +531,9 @@ Available tools:
 
 Each tool returns structured JSON data and is optimized for real-time financial insights.
 """,
-    host=MCP_HOST, port=MCP_PORT
+    host=MCP_HOST,
+    port=MCP_PORT,
 )
-
 
 
 state = ServerState()
@@ -556,9 +542,8 @@ ti = TechnicalIndicators()
 
 @mcp.tool("get_stock_price")
 def get_stock_price(symbol: str) -> MCPResponse:
-
     """
-    Retrieve the current stock price and related data for the given symbol, 
+    Retrieve the current stock price and related data for the given symbol,
     utilizing an internal cache to minimize redundant API calls.
 
     Args:
@@ -575,44 +560,41 @@ def get_stock_price(symbol: str) -> MCPResponse:
             - volume (int): Trading volume.
             - market_cap (int): Market capitalization.
             - currency (str): Trading currency (default 'USD').
-            
+
     """
     symbol = symbol.upper()
-    
+
     # Attempt to retrieve cached price data to reduce API calls
     cached_price = state.get_from_cache(f"price_{symbol}")
     if cached_price:
         return format_response(cached_price)
-    
+
     try:
         ticker = fetch_ticker(symbol)
         price = safe_get_price(ticker)
         info = ticker.info
-        
+
         price_data = {
-            'symbol': symbol,
-            'current_price': round(price, 2),
-            'previous_close': round(info.get('previousClose', 0), 2),
-            'open': round(info.get('regularMarketOpen', 0), 2),
-            'day_high': round(info.get('dayHigh', 0), 2),
-            'day_low': round(info.get('dayLow', 0), 2),
-            'volume': info.get('volume', 0),
-            'market_cap': info.get('marketCap', 0),
-            'currency': info.get('currency', 'USD')
+            "symbol": symbol,
+            "current_price": round(price, 2),
+            "previous_close": round(info.get("previousClose", 0), 2),
+            "open": round(info.get("regularMarketOpen", 0), 2),
+            "day_high": round(info.get("dayHigh", 0), 2),
+            "day_low": round(info.get("dayLow", 0), 2),
+            "volume": info.get("volume", 0),
+            "market_cap": info.get("marketCap", 0),
+            "currency": info.get("currency", "USD"),
         }
-        
-       
+
         state.add_to_cache(f"price_{symbol}", price_data)
-        
+
         return format_response(price_data)
     except Exception as e:
         return format_response(None, False, str(e))
 
 
-
 @mcp.tool("get_stock_info")
 def get_stock_info(ticker: str) -> MCPResponse:
-
     """
     Retrieve comprehensive company information for a given stock ticker symbol.
 
@@ -641,43 +623,41 @@ def get_stock_info(ticker: str) -> MCPResponse:
 
     """
     ticker = ticker.upper()
-    
+
     try:
         company = Ticker(ticker)
         info = company.info
-        
-        if not info or not info.get('longName'):
+
+        if not info or not info.get("longName"):
             return format_response(None, False, f"Ticker {ticker} not found")
-        
+
         company_data = {
-            'symbol': ticker,
-            'long_name': info.get('longName', 'N/A'),
-            'short_name': info.get('shortName', 'N/A'),
-            'sector': info.get('sector', 'N/A'),
-            'industry': info.get('industry', 'N/A'),
-            'country': info.get('country', 'N/A'),
-            'website': info.get('website', 'N/A'),
-            'business_summary': info.get('businessSummary', 'N/A')[:500] + "..." if info.get('businessSummary') else 'N/A',
-            'employees': info.get('fullTimeEmployees', 0),
-            'market_cap': info.get('marketCap', 0),
-            'enterprise_value': info.get('enterpriseValue', 0),
-            'pe_ratio': info.get('trailingPE', 0),
-            'forward_pe': info.get('forwardPE', 0),
-            'price_to_book': info.get('priceToBook', 0),
-            'debt_to_equity': info.get('debtToEquity', 0),
-            'return_on_equity': info.get('returnOnEquity', 0),
-            'currency': info.get('currency', 'USD')
+            "symbol": ticker,
+            "long_name": info.get("longName", "N/A"),
+            "short_name": info.get("shortName", "N/A"),
+            "sector": info.get("sector", "N/A"),
+            "industry": info.get("industry", "N/A"),
+            "country": info.get("country", "N/A"),
+            "website": info.get("website", "N/A"),
+            "business_summary": info.get("businessSummary", "N/A")[:500] + "..." if info.get("businessSummary") else "N/A",
+            "employees": info.get("fullTimeEmployees", 0),
+            "market_cap": info.get("marketCap", 0),
+            "enterprise_value": info.get("enterpriseValue", 0),
+            "pe_ratio": info.get("trailingPE", 0),
+            "forward_pe": info.get("forwardPE", 0),
+            "price_to_book": info.get("priceToBook", 0),
+            "debt_to_equity": info.get("debtToEquity", 0),
+            "return_on_equity": info.get("returnOnEquity", 0),
+            "currency": info.get("currency", "USD"),
         }
-        
+
         return format_response(company_data)
     except Exception as e:
         return format_response(None, False, str(e))
 
 
-
 @mcp.tool("get_historical_stock_prices")
 def get_historical_stock_prices(ticker: str, period: str = "1mo", interval: str = "1d") -> MCPResponse:
-
     """
     Retrieve historical stock price data for a given ticker symbol.
 
@@ -702,49 +682,49 @@ def get_historical_stock_prices(ticker: str, period: str = "1mo", interval: str 
 
     """
     ticker = ticker.upper()
-    
+
     try:
         company = Ticker(ticker)
         data = company.history(period=period, interval=interval)
-        
+
         if data.empty:
             return format_response(None, False, f"No historical data found for {ticker}")
-        
+
         # Convert to list of dictionaries
         historical_data = []
         for date, row in data.iterrows():
-            historical_data.append({
-                'date': date.strftime('%Y-%m-%d'),
-                'open': round(row['Open'], 2),
-                'high': round(row['High'], 2),
-                'low': round(row['Low'], 2),
-                'close': round(row['Close'], 2),
-                'volume': int(row['Volume'])
-            })
-        
+            historical_data.append(
+                {
+                    "date": date.strftime("%Y-%m-%d"),
+                    "open": round(row["Open"], 2),
+                    "high": round(row["High"], 2),
+                    "low": round(row["Low"], 2),
+                    "close": round(row["Close"], 2),
+                    "volume": int(row["Volume"]),
+                }
+            )
+
         result = {
-            'symbol': ticker,
-            'period': period,
-            'interval': interval,
-            'data': historical_data,
-            'total_records': len(historical_data)
+            "symbol": ticker,
+            "period": period,
+            "interval": interval,
+            "data": historical_data,
+            "total_records": len(historical_data),
         }
-        
+
         return format_response(result)
     except Exception as e:
         return format_response(None, False, str(e))
 
 
-
 @mcp.tool("get_financial_statement")
 def get_financial_statement(ticker: str, financial_type: str) -> MCPResponse:
-
     """
     Retrieve specified financial statements for a given stock ticker.
 
     Args:
         ticker (str): The stock ticker symbol (case-insensitive).
-        financial_type (str): Type of financial statement to retrieve. Expected values correspond to 
+        financial_type (str): Type of financial statement to retrieve. Expected values correspond to
                               FinancialType enum keys, such as:
                               - income_stmt
                               - quarterly_income_stmt
@@ -764,10 +744,10 @@ def get_financial_statement(ticker: str, financial_type: str) -> MCPResponse:
 
     """
     ticker = ticker.upper()
-    
+
     try:
         company = Ticker(ticker)
-        
+
         mapping = {
             FinancialType.income_stmt: company.income_stmt,
             FinancialType.quarterly_income_stmt: company.quarterly_income_stmt,
@@ -776,11 +756,11 @@ def get_financial_statement(ticker: str, financial_type: str) -> MCPResponse:
             FinancialType.cashflow: company.cashflow,
             FinancialType.quarterly_cashflow: company.quarterly_cashflow,
         }
-        
+
         fs_data = mapping.get(financial_type)
         if fs_data is None or fs_data.empty:
             return format_response(None, False, f"No {financial_type} data available for {ticker}")
-        
+
         # Convert dataframe to list of dicts with date keys
         result = []
         for column in fs_data.columns:
@@ -789,12 +769,8 @@ def get_financial_statement(ticker: str, financial_type: str) -> MCPResponse:
             for idx, value in fs_data[column].items():
                 row[idx] = None if pd.isna(value) else float(value) if isinstance(value, (int, float)) else value
             result.append(row)
-        
-        return format_response({
-            'symbol': ticker,
-            'financial_type': financial_type,
-            'data': result
-        })
+
+        return format_response({"symbol": ticker, "financial_type": financial_type, "data": result})
     except Exception as e:
         return format_response(None, False, str(e))
 
@@ -827,7 +803,7 @@ async def get_holder_info(ticker: str, holder_type: str) -> MCPResponse:
                 return format_response(
                     None,
                     False,
-                    f"Error: Invalid holder type '{holder_type}'. Valid types: {', '.join([h.value for h in HolderType])}"
+                    f"Error: Invalid holder type '{holder_type}'. Valid types: {', '.join([h.value for h in HolderType])}",
                 )
 
         return format_response(data)
@@ -835,30 +811,29 @@ async def get_holder_info(ticker: str, holder_type: str) -> MCPResponse:
         return format_response(None, False, f"Error retrieving {holder_type} data for '{ticker}': {e}")
 
 
-
 # Technical Analysis Tools
 @mcp.tool("get_moving_averages")
-def get_moving_averages(symbol: str, period: str = "6mo", interval: str = "1d", 
-                        windows: List[int] = [20, 50, 200]) -> MCPResponse:
-    
+def get_moving_averages(symbol: str, period: str = "6mo", interval: str = "1d", windows: List[int] = [20, 50, 200]) -> MCPResponse:
     """Calculate multiple Simple Moving Averages (SMA) and Exponential Moving Averages (EMA) for a stock."""
     try:
         data = ti.get_stock_data(symbol, period, interval)
         result = {}
-        
+
         for window in windows:
             sma = ti.calculate_moving_average(data, window)
             ema = ti.calculate_exponential_moving_average(data, window)
-            
-            result[f'SMA_{window}'] = sma.dropna().round(2).tolist()
-            result[f'EMA_{window}'] = ema.dropna().round(2).tolist()
-        
-        result.update({
-            'dates': data.index.strftime('%Y-%m-%d').tolist(),
-            'close': data['Close'].round(2).tolist(),
-            'symbol': symbol.upper()
-        })
-        
+
+            result[f"SMA_{window}"] = sma.dropna().round(2).tolist()
+            result[f"EMA_{window}"] = ema.dropna().round(2).tolist()
+
+        result.update(
+            {
+                "dates": data.index.strftime("%Y-%m-%d").tolist(),
+                "close": data["Close"].round(2).tolist(),
+                "symbol": symbol.upper(),
+            }
+        )
+
         return format_response(result)
     except Exception as e:
         return format_response(None, False, str(e))
@@ -866,84 +841,85 @@ def get_moving_averages(symbol: str, period: str = "6mo", interval: str = "1d",
 
 @mcp.tool("get_rsi")
 def get_rsi(symbol: str, period: str = "6mo", interval: str = "1d", window: int = 14) -> MCPResponse:
-    """ Calculate the Relative Strength Index (RSI) for a given stock symbol."""
+    """Calculate the Relative Strength Index (RSI) for a given stock symbol."""
     try:
         data = ti.get_stock_data(symbol, period, interval)
         rsi = ti.calculate_rsi(data, window)
-        
+
         result = {
-            'symbol': symbol.upper(),
-            'dates': data.index.strftime('%Y-%m-%d').tolist(),
-            'rsi': rsi.dropna().round(2).tolist(),
-            'close': data['Close'].round(2).tolist(),
-            'current_rsi': round(rsi.iloc[-1], 2),
-            'overbought': bool(rsi.iloc[-1] > 70), 
-            'oversold': bool(rsi.iloc[-1] < 30)     
+            "symbol": symbol.upper(),
+            "dates": data.index.strftime("%Y-%m-%d").tolist(),
+            "rsi": rsi.dropna().round(2).tolist(),
+            "close": data["Close"].round(2).tolist(),
+            "current_rsi": round(rsi.iloc[-1], 2),
+            "overbought": bool(rsi.iloc[-1] > 70),
+            "oversold": bool(rsi.iloc[-1] < 30),
         }
-        
+
         return format_response(result)
     except Exception as e:
         return format_response(None, False, str(e))
 
 
 @mcp.tool("get_macd")
-def get_macd(symbol: str, period: str = "6mo", interval: str = "1d", 
-            fast_period: int = 12, slow_period: int = 26, signal_period: int = 9) -> MCPResponse:
-    
+def get_macd(
+    symbol: str,
+    period: str = "6mo",
+    interval: str = "1d",
+    fast_period: int = 12,
+    slow_period: int = 26,
+    signal_period: int = 9,
+) -> MCPResponse:
     """Calculate the Moving Average Convergence Divergence (MACD) indicator for a given stock symbol."""
     try:
         data = ti.get_stock_data(symbol, period, interval)
         macd_data = ti.calculate_macd(data, fast_period, slow_period, signal_period)
-        
+
         result = {
-            'symbol': symbol.upper(),
-            'dates': data.index.strftime('%Y-%m-%d').tolist(),
-            'macd': macd_data['macd'].dropna().round(4).tolist(),
-            'signal': macd_data['signal'].dropna().round(4).tolist(),
-            'histogram': macd_data['histogram'].dropna().round(4).tolist(),
-            'close': data['Close'].round(2).tolist(),
-            'bullish_crossover': bool(macd_data['macd'].iloc[-1] > macd_data['signal'].iloc[-1])
+            "symbol": symbol.upper(),
+            "dates": data.index.strftime("%Y-%m-%d").tolist(),
+            "macd": macd_data["macd"].dropna().round(4).tolist(),
+            "signal": macd_data["signal"].dropna().round(4).tolist(),
+            "histogram": macd_data["histogram"].dropna().round(4).tolist(),
+            "close": data["Close"].round(2).tolist(),
+            "bullish_crossover": bool(macd_data["macd"].iloc[-1] > macd_data["signal"].iloc[-1]),
         }
-        
+
         return format_response(result)
     except Exception as e:
         return format_response(None, False, str(e))
 
 
-
 @mcp.tool("get_bollinger_bands")
-def get_bollinger_bands(symbol: str, period: str = "6mo", interval: str = "1d",
-                        window: int = 20, num_std: float = 2.0) -> MCPResponse:
-    
-    """ Calculate Bollinger Bands for a given stock symbol.
+def get_bollinger_bands(symbol: str, period: str = "6mo", interval: str = "1d", window: int = 20, num_std: float = 2.0) -> MCPResponse:
+    """Calculate Bollinger Bands for a given stock symbol.
 
     Bollinger Bands consist of a middle band (simple moving average) and upper and lower bands
     calculated based on standard deviations from the middle band."""
     try:
         data = ti.get_stock_data(symbol, period, interval)
         bb_data = ti.calculate_bollinger_bands(data, window, num_std)
-        
-        current_price = data['Close'].iloc[-1]
-        upper_band = bb_data['upper'].iloc[-1]
-        lower_band = bb_data['lower'].iloc[-1]
-        
+
+        current_price = data["Close"].iloc[-1]
+        upper_band = bb_data["upper"].iloc[-1]
+        lower_band = bb_data["lower"].iloc[-1]
+
         result = {
-            'symbol': symbol.upper(),
-            'dates': data.index.strftime('%Y-%m-%d').tolist(),
-            'upper': bb_data['upper'].dropna().round(2).tolist(),
-            'middle': bb_data['middle'].dropna().round(2).tolist(),
-            'lower': bb_data['lower'].dropna().round(2).tolist(),
-            'close': data['Close'].round(2).tolist(),
-            'price_position': 'above_upper' if current_price > upper_band else 'below_lower' if current_price < lower_band else 'within_bands',
-            'squeeze': bool((upper_band - lower_band) / bb_data['middle'].iloc[-1] < 0.1)
+            "symbol": symbol.upper(),
+            "dates": data.index.strftime("%Y-%m-%d").tolist(),
+            "upper": bb_data["upper"].dropna().round(2).tolist(),
+            "middle": bb_data["middle"].dropna().round(2).tolist(),
+            "lower": bb_data["lower"].dropna().round(2).tolist(),
+            "close": data["Close"].round(2).tolist(),
+            "price_position": "above_upper" if current_price > upper_band else "below_lower" if current_price < lower_band else "within_bands",
+            "squeeze": bool((upper_band - lower_band) / bb_data["middle"].iloc[-1] < 0.1),
         }
-        
+
         return format_response(result)
     except Exception as e:
         return format_response(None, False, str(e))
-    
 
-    
+
 @mcp.tool("get_technical_summary")
 def get_technical_summary(symbol: str) -> MCPResponse:
     """
@@ -969,7 +945,7 @@ def get_technical_summary(symbol: str) -> MCPResponse:
         if len(data) < 200:
             return format_response(None, False, "Not enough data to calculate indicators (need 200+ days)")
 
-        latest_price = data['Close'].iloc[-1]
+        latest_price = data["Close"].iloc[-1]
 
         # Calculate indicators
         sma_20 = ti.calculate_moving_average(data, 20).iloc[-1]
@@ -979,22 +955,21 @@ def get_technical_summary(symbol: str) -> MCPResponse:
         rsi = ti.calculate_rsi(data).iloc[-1]
 
         macd_data = ti.calculate_macd(data)
-        macd = macd_data['macd'].iloc[-1]
-        macd_signal = macd_data['signal'].iloc[-1]
+        macd = macd_data["macd"].iloc[-1]
+        macd_signal = macd_data["signal"].iloc[-1]
 
         bb_data = ti.calculate_bollinger_bands(data)
-        bb_upper = bb_data['upper'].iloc[-1]
-        bb_lower = bb_data['lower'].iloc[-1]
-        bb_middle = bb_data['middle'].iloc[-1]
+        bb_upper = bb_data["upper"].iloc[-1]
+        bb_lower = bb_data["lower"].iloc[-1]
+        bb_middle = bb_data["middle"].iloc[-1]
 
         volatility = ti.calculate_volatility(data).iloc[-1]
 
         # Detect support/resistance levels
         levels = ti.detect_support_resistance(data)
-        if not levels or not isinstance(levels, dict) or \
-           'support' not in levels or 'resistance' not in levels:
+        if not levels or not isinstance(levels, dict) or "support" not in levels or "resistance" not in levels:
             print(f"[WARN] Missing or invalid support/resistance data for {symbol.upper()}")
-            levels = {'support': [], 'resistance': []}
+            levels = {"support": [], "resistance": []}
 
         # Generate analysis signals
         signals = []
@@ -1052,12 +1027,12 @@ def get_technical_summary(symbol: str) -> MCPResponse:
                 "bb_upper": round(bb_upper, 2),
                 "bb_middle": round(bb_middle, 2),
                 "bb_lower": round(bb_lower, 2),
-                "volatility_annualized": round(volatility * 100, 2)
+                "volatility_annualized": round(volatility * 100, 2),
             },
             "support_resistance": {
                 "resistance_levels": levels["resistance"][:3],
-                "support_levels": levels["support"][:3]
-            }
+                "support_levels": levels["support"][:3],
+            },
         }
 
         return format_response(result)
@@ -1066,116 +1041,93 @@ def get_technical_summary(symbol: str) -> MCPResponse:
         return format_response(None, False, str(e))
 
 
-
 # Watchlist Management
 @mcp.tool("add_to_watchlist")
 def add_to_watchlist(symbol: str) -> MCPResponse:
-
     """Add a stock symbol to the user's watchlist."""
     symbol = symbol.upper()
-    
+
     if not validate_ticker(symbol):
         return format_response(None, False, f"Invalid ticker symbol: {symbol}")
-    
+
     state.watchlist.add(symbol)
     return format_response(
-        {'symbol': symbol, 'watchlist_size': len(state.watchlist)},
+        {"symbol": symbol, "watchlist_size": len(state.watchlist)},
         True,
-        f"Added {symbol} to watchlist"
+        f"Added {symbol} to watchlist",
     )
+
 
 @mcp.tool("remove_from_watchlist")
 def remove_from_watchlist(symbol: str) -> MCPResponse:
-
     """Remove a stock symbol from the user's watchlist."""
     symbol = symbol.upper()
-    
+
     if symbol in state.watchlist:
         state.watchlist.remove(symbol)
         return format_response(
-            {'symbol': symbol, 'watchlist_size': len(state.watchlist)},
+            {"symbol": symbol, "watchlist_size": len(state.watchlist)},
             True,
-            f"Removed {symbol} from watchlist"
+            f"Removed {symbol} from watchlist",
         )
-    
+
     return format_response(None, False, f"{symbol} not in watchlist")
 
 
 @mcp.tool("get_watchlist")
 def get_watchlist() -> MCPResponse:
-
     """Retrieve all stock symbols currently in the watchlist."""
-    return format_response({
-        'symbols': sorted(list(state.watchlist)),
-        'count': len(state.watchlist)
-    })
+    return format_response({"symbols": sorted(list(state.watchlist)), "count": len(state.watchlist)})
 
 
 @mcp.tool("get_watchlist_prices")
 def get_watchlist_prices() -> MCPResponse:
-
     """Fetch the current prices for all stocks in the watchlist"""
     if not state.watchlist:
         return format_response([], True, "Watchlist is empty")
-    
+
     prices = []
     for symbol in sorted(state.watchlist):
         try:
             ticker = fetch_ticker(symbol)
             price = safe_get_price(ticker)
-            prices.append({
-                'symbol': symbol,
-                'price': round(price, 2),
-                'status': 'success'
-            })
+            prices.append({"symbol": symbol, "price": round(price, 2), "status": "success"})
         except Exception as e:
-            prices.append({
-                'symbol': symbol,
-                'price': None,
-                'status': 'error',
-                'error': str(e)
-            })
-    
+            prices.append({"symbol": symbol, "price": None, "status": "error", "error": str(e)})
+
     return format_response(prices)
 
 
 # News and Recommendations
 @mcp.tool("get_yahoo_finance_news")
 def get_yahoo_finance_news(ticker: str) -> MCPResponse:
-
     """Get the latest news articles related to a stock ticker from Yahoo Finance."""
     ticker = ticker.upper()
-    
+
     try:
         company = Ticker(ticker)
         news_list = company.news
-        
+
         results = []
         for i in news_list[:10]:  # Limit to 10 most recent
-            item: dict = i.get('content')
-            results.append({
-                'title': item.get('title', ''),
-                'publisher': item.get('provider', {}).get('url', ''),
-                'link': item.get('canonicalUrl', {}).get('url', ''),
-                'published': item.get('pubDate', ''),
-                'summary': item.get('summary', '')
-            })
-        
-        return format_response({
-            'symbol': ticker,
-            'news': results,
-            'count': len(results)
-        })
+            item: dict = i.get("content")
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "publisher": item.get("provider", {}).get("url", ""),
+                    "link": item.get("canonicalUrl", {}).get("url", ""),
+                    "published": item.get("pubDate", ""),
+                    "summary": item.get("summary", ""),
+                }
+            )
+
+        return format_response({"symbol": ticker, "news": results, "count": len(results)})
     except Exception as e:
         return format_response(None, False, str(e))
 
+
 @mcp.tool("get_recommendations")
-async def get_recommendations(
-    ticker: str,
-    recommendation_type: str,
-    months_back: int = 12
-) -> MCPResponse:
-    
+async def get_recommendations(ticker: str, recommendation_type: str, months_back: int = 12) -> MCPResponse:
     """Get recommendations or upgrades/downgrades for a given ticker symbol"""
 
     company = Ticker(ticker.upper())
@@ -1217,32 +1169,30 @@ async def get_recommendations(
         return format_response([], False, f"Error getting recommendations for '{ticker}': {e}")
 
 
-
 @mcp.tool("compare_stocks")
 def compare_stocks(symbol1: str, symbol2: str) -> MCPResponse:
-
     """Compare two stocks"""
     symbol1, symbol2 = symbol1.upper(), symbol2.upper()
-    
+
     try:
         price1 = safe_get_price(fetch_ticker(symbol1))
         price2 = safe_get_price(fetch_ticker(symbol2))
-        
+
         comparison = {
-            'symbol1': {'symbol': symbol1, 'price': round(price1, 2)},
-            'symbol2': {'symbol': symbol2, 'price': round(price2, 2)},
-            'difference': round(price1 - price2, 2),
-            'percentage_difference': round(((price1 - price2) / price2) * 100, 2),
-            'higher': symbol1 if price1 > price2 else symbol2 if price2 > price1 else 'equal'
+            "symbol1": {"symbol": symbol1, "price": round(price1, 2)},
+            "symbol2": {"symbol": symbol2, "price": round(price2, 2)},
+            "difference": round(price1 - price2, 2),
+            "percentage_difference": round(((price1 - price2) / price2) * 100, 2),
+            "higher": symbol1 if price1 > price2 else symbol2 if price2 > price1 else "equal",
         }
-        
+
         return format_response(comparison)
     except Exception as e:
         return format_response(None, False, str(e))
 
+
 # Background price update function
 def update_watchlist_prices():
-
     """Background thread to update watchlist prices"""
     while state.running:
         try:
@@ -1251,26 +1201,30 @@ def update_watchlist_prices():
                     ticker = fetch_ticker(symbol)
                     price = safe_get_price(ticker)
                     state.watchlist_prices[symbol] = {
-                        'price': round(price, 2),
-                        'updated': datetime.now().isoformat()
+                        "price": round(price, 2),
+                        "updated": datetime.now().isoformat(),
                     }
                 except Exception as e:
-                    log(f"Error updating price for {symbol}: {e}", "error", logger, None, exception=e)
+                    log(
+                        f"Error updating price for {symbol}: {e}",
+                        "error",
+                        logger,
+                        None,
+                        exception=e,
+                    )
                     state.watchlist_prices[symbol] = {
-                        'price': None,
-                        'error': str(e),
-                        'updated': datetime.now().isoformat()
+                        "price": None,
+                        "error": str(e),
+                        "updated": datetime.now().isoformat(),
                     }
-            
+
             # Cleanup cache
             state.cleanup_cache()
-            
+
         except Exception as e:
             log(f"Error in price update thread: {e}", "error", logger, None, exception=e)
-        
+
         time.sleep(60)  # Update every minute
-
-
 
 
 async def main():
@@ -1279,5 +1233,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())     
-
+    asyncio.run(main())

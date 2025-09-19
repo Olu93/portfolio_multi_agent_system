@@ -1,8 +1,13 @@
 import logging
-from a2a_servers.constants import AGENT_CONFIG_AGENTS_DIR, AGENT_CONFIG_MODELS_DIR, AGENT_CONFIG_PROMPTS_DIR
+from a2a_servers.constants import (
+    AGENT_CONFIG_AGENTS_DIR,
+    AGENT_CONFIG_MODELS_DIR,
+    AGENT_CONFIG_PROMPTS_DIR,
+)
 import yaml
 
 logger = logging.getLogger(__name__)
+
 
 def load_agent_config(agent_name: str) -> dict:
     file_to_open = AGENT_CONFIG_AGENTS_DIR / f"{agent_name}.yml"
@@ -38,4 +43,3 @@ def load_prompt_config(prompt_file_name: str) -> str:
         res = f.read()
         logger.info(f"Successfully loaded prompt config for {prompt_file_name}")
         return res
-

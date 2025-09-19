@@ -78,9 +78,7 @@ def clean_html_lxml(html_content: str, reduce_noise: bool = True) -> str:
     except Exception:
         # Best-effort fallback
         try:
-            return html.tostring(
-                html.fromstring(html_content), encoding="unicode", method="html"
-            )
+            return html.tostring(html.fromstring(html_content), encoding="unicode", method="html")
         except Exception:
             return html_content
 
@@ -127,9 +125,7 @@ class PlaywrightBrowserManager:
         self.page: Optional[Page] = None
 
     # replace your launch_browser with this more defensive version
-    async def launch_browser(
-        self, ctx: Optional[Context], headless: Optional[bool] = None
-    ) -> bool:
+    async def launch_browser(self, ctx: Optional[Context], headless: Optional[bool] = None) -> bool:
         headless = PW_HEADLESS if headless is None else headless
         try:
             # Reuse only if truly alive
@@ -194,9 +190,7 @@ class PlaywrightBrowserManager:
             await log("Goto failed", "exception", logger, ctx, exception=e)
             return False
 
-    async def wait_for_element(
-        self, selector: str, timeout_ms: int, ctx: Optional[Context]
-    ) -> bool:
+    async def wait_for_element(self, selector: str, timeout_ms: int, ctx: Optional[Context]) -> bool:
         try:
             if not self.page:
                 msg = "No page. Launch the browser first."
@@ -226,9 +220,7 @@ class PlaywrightBrowserManager:
             await log("Click failed", "exception", logger, ctx, exception=e)
             return False
 
-    async def fill_form(
-        self, form_data: Dict[str, str], ctx: Optional[Context]
-    ) -> bool:
+    async def fill_form(self, form_data: Dict[str, str], ctx: Optional[Context]) -> bool:
         try:
             if not self.page:
                 msg = "No page. Launch the browser first."
@@ -244,9 +236,7 @@ class PlaywrightBrowserManager:
             await log("Fill form failed", "exception", logger, ctx, exception=e)
             return False
 
-    async def _ensure_page_available(
-        self, ctx: Optional[Context]
-    ) -> tuple[bool, Optional[str]]:
+    async def _ensure_page_available(self, ctx: Optional[Context]) -> tuple[bool, Optional[str]]:
         """Ensure page is available, return (success, error_message)."""
         if not self.page:
             msg = "No page. Launch the browser first."
@@ -310,9 +300,7 @@ class PlaywrightBrowserManager:
             await log(error_msg, "exception", logger, ctx, exception=e)
             return MCPResponse(status="ERR", error=str(e))
 
-    async def get_page_text(
-        self, reduce_noise: bool, ctx: Optional[Context]
-    ) -> MCPResponse:
+    async def get_page_text(self, reduce_noise: bool, ctx: Optional[Context]) -> MCPResponse:
         """Get text content of the current page."""
         try:
             available, error_msg = await self._ensure_page_available(ctx)
@@ -327,9 +315,7 @@ class PlaywrightBrowserManager:
             await log(error_msg, "exception", logger, ctx, exception=e)
             return MCPResponse(status="ERR", error=str(e))
 
-    async def get_page_html_cleaned(
-        self, reduce_noise: bool, ctx: Optional[Context]
-    ) -> MCPResponse:
+    async def get_page_html_cleaned(self, reduce_noise: bool, ctx: Optional[Context]) -> MCPResponse:
         """Get cleaned HTML content of the current page."""
         try:
             available, error_msg = await self._ensure_page_available(ctx)
@@ -360,9 +346,7 @@ class PlaywrightBrowserManager:
             await log(error_msg, "exception", logger, ctx, exception=e)
             return MCPResponse(status="ERR", error=str(e))
 
-    async def get_current_page_info(
-        self, include_screenshot: bool, reduce_noise: bool, ctx: Optional[Context]
-    ) -> MCPResponse:
+    async def get_current_page_info(self, include_screenshot: bool, reduce_noise: bool, ctx: Optional[Context]) -> MCPResponse:
         """Get comprehensive page information by calling individual methods."""
         try:
             if ctx:
@@ -384,9 +368,7 @@ class PlaywrightBrowserManager:
                 (markdown_resp, "markdown"),
             ]:
                 if resp.status == "ERR":
-                    return MCPResponse(
-                        status="ERR", error=f"Failed to get page {name}: {resp.error}"
-                    )
+                    return MCPResponse(status="ERR", error=f"Failed to get page {name}: {resp.error}")
 
             base64_img = None
             screenshot_resp = None
@@ -424,7 +406,10 @@ class PlaywrightBrowserManager:
                 ),
             )
             await log(
-                f"Page info collected: title={title_resp.payload}, url={url_resp.payload}", "debug", logger, ctx
+                f"Page info collected: title={title_resp.payload}, url={url_resp.payload}",
+                "debug",
+                logger,
+                ctx,
             )
             if ctx:
                 await log("Page info collected.", "info", logger, ctx)
@@ -458,9 +443,7 @@ class PlaywrightBrowserManager:
             try:
                 # best-effort notify (non-blocking)
                 if ctx:
-                    asyncio.create_task(
-                        ctx.info("Browser disconnected; please relaunch.")
-                    )
+                    asyncio.create_task(ctx.info("Browser disconnected; please relaunch."))
             except Exception:
                 pass
             self.page = None
@@ -471,12 +454,7 @@ class PlaywrightBrowserManager:
 
     # make wait/click/form robust too (recreate page if closed)
     def _ensure_page_ok(self) -> bool:
-        return (
-            self.browser
-            and self.browser.is_connected()
-            and self.page
-            and not self.page.is_closed()
-        )
+        return self.browser and self.browser.is_connected() and self.page and not self.page.is_closed()
 
 
 mcp = FastMCP("playwright-browser", host=MCP_HOST, port=MCP_PORT)
@@ -484,9 +462,7 @@ manager = PlaywrightBrowserManager()
 
 
 @mcp.tool()
-async def launch_browser_with_page(
-    url: str, headless: bool = True, ctx: Context = None
-) -> MCPResponse:
+async def launch_browser_with_page(url: str, headless: bool = True, ctx: Context = None) -> MCPResponse:
     """
     Launch a new browser instance using Playwright and navigate to a specific URL.
 
@@ -586,9 +562,7 @@ async def navigate_to_url(url: str, ctx: Context = None) -> MCPResponse:
 
 
 @mcp.tool()
-async def wait_for_element(
-    selector: str, timeout_ms: int = 30000, ctx: Context = None
-) -> MCPResponse:
+async def wait_for_element(selector: str, timeout_ms: int = 30000, ctx: Context = None) -> MCPResponse:
     """
     Wait for an element to appear on the current page.
 
@@ -653,9 +627,7 @@ async def click_element(selector: str, ctx: Context = None) -> MCPResponse:
         if success:
             return MCPResponse(status="OK")
         else:
-            return MCPResponse(
-                status="ERR", error=f"Failed to click element: {selector}"
-            )
+            return MCPResponse(status="ERR", error=f"Failed to click element: {selector}")
     except Exception as e:
         return MCPResponse(status="ERR", error=str(e))
 
@@ -701,9 +673,7 @@ async def fill_form(form_data: str, ctx: Context = None) -> MCPResponse:
 
 
 @mcp.tool()
-async def get_current_page(
-    include_screenshot: bool = False, ctx: Context = None
-) -> MCPResponse:
+async def get_current_page(include_screenshot: bool = False, ctx: Context = None) -> MCPResponse:
     """
     Get comprehensive information about the current page.
 
@@ -865,6 +835,7 @@ async def get_page_title(ctx: Context = None) -> MCPResponse:
     """
     return await manager.get_page_title(ctx)
 
+
 @mcp.tool()
 async def get_page_markdown(ctx: Context = None) -> MCPResponse:
     """
@@ -888,7 +859,6 @@ async def get_page_markdown(ctx: Context = None) -> MCPResponse:
 async def main():
     """Main function to start the Playwright MCP server"""
 
-    
     try:
         await start_mcp_server(mcp, MCP_HOST, MCP_PORT, logger, None)
     finally:

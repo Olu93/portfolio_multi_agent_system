@@ -36,19 +36,14 @@ CALDAV_PASSWORD = os.getenv("CALDAV_PASSWORD", "")
 # TODO: The method "utcnow" in class "datetime" is deprecated.Use timezone-aware objects to represent datetimes in UTC; e.g. by calling .now(datetime.UTC)
 # TODO: Add timezone support as the created events are all shifted by 2 hours
 
+
 class CalEventEntryContract(BaseModel):
     _type: Literal["VEVENT", "VBUSY"]
     cal_url: str = Field(..., description="The URL of the calendar")
     summary: str = Field("", description="The summary of the event")
-    start_datetime: datetime = Field(
-        datetime.now(), description="The start datetime of the event as datetime object"
-    )
-    end_datetime: datetime = Field(
-        datetime.now(), description="The end datetime of the event as datetime object"
-    )
-    extra: dict[str, Any] = Field(
-        default_factory=dict, description="Extra fields of the event"
-    )
+    start_datetime: datetime = Field(datetime.now(), description="The start datetime of the event as datetime object")
+    end_datetime: datetime = Field(datetime.now(), description="The end datetime of the event as datetime object")
+    extra: dict[str, Any] = Field(default_factory=dict, description="Extra fields of the event")
 
 
 def event_to_dict_list(event_obj: Event) -> list[CalEventEntryContract]:
@@ -133,9 +128,7 @@ class CalDAVServer:
 
         # Validate configuration
         if not self.url or not self.user or not self.password:
-            raise ValueError(
-                "CALDAV_URL, CALDAV_USER, and CALDAV_PASSWORD environment variables must be set"
-            )
+            raise ValueError("CALDAV_URL, CALDAV_USER, and CALDAV_PASSWORD environment variables must be set")
 
     async def connect(self, ctx: Context) -> bool:
         """Connect to CalDAV server and initialize calendars"""
@@ -143,9 +136,7 @@ class CalDAVServer:
             await log("Connecting to CalDAV server...", "info", logger, ctx)
 
             # Create client and connect
-            self.client = DAVClient(
-                url=self.url, username=self.user, password=self.password
-            )
+            self.client = DAVClient(url=self.url, username=self.user, password=self.password)
             self.principal = self.client.principal()
             self.calendars = self.principal.calendars()
 
@@ -155,7 +146,12 @@ class CalDAVServer:
 
             # Set primary calendar (first one)
             self.primary_calendar = self.calendars[0]
-            await log(f"Connected to CalDAV server. Found {len(self.calendars)} calendars", "info", logger, ctx)
+            await log(
+                f"Connected to CalDAV server. Found {len(self.calendars)} calendars",
+                "info",
+                logger,
+                ctx,
+            )
             await log(f"Primary calendar: {self.primary_calendar.name}", "info", logger, ctx)
 
             return True
@@ -195,13 +191,8 @@ class CalDAVServer:
         if event.location:
             ical += f"\nLOCATION:{event.location}"
 
-        ical += (
-            "\nEND:VEVENT\n"
-            "END:VCALENDAR"
-        )
+        ical += "\nEND:VEVENT\nEND:VCALENDAR"
         return ical
-
-
 
     async def create_event(self, event: CalDAVEvent, ctx: Context, attendees: List[str] = None) -> MCPResponse:
         """Create a new calendar event and send invites via CalDAV server."""
@@ -218,7 +209,12 @@ class CalDAVServer:
             # Add event to calendar
             self.primary_calendar.add_event(ical_content)
 
-            await log("Event created successfully! Invitations sent by server if applicable.", "info", logger, ctx)
+            await log(
+                "Event created successfully! Invitations sent by server if applicable.",
+                "info",
+                logger,
+                ctx,
+            )
             return MCPResponse(status="OK", payload=f"Event '{event.title}' created successfully and invites sent")
 
         except Exception as e:
@@ -226,7 +222,6 @@ class CalDAVServer:
             await log(error_msg, "error", logger, ctx, exception=e)
             traceback.print_exc(file=sys.stderr)
             return MCPResponse(status="ERR", error=error_msg)
-
 
     # TODO: Add limit parameter to get events but keep the default to 10
     async def get_events(
@@ -279,9 +274,8 @@ class CalDAVServer:
                     error_event.extra["error"] = str(e)
                     event_details.append(error_event)
 
-            payload = (
-                f"Retrieved {len(results)} events from {start_date.date()} to {end_date.date()}:\n\n"
-                + "\n\n".join([event.model_dump_json(indent=2) for event in event_details])
+            payload = f"Retrieved {len(results)} events from {start_date.date()} to {end_date.date()}:\n\n" + "\n\n".join(
+                [event.model_dump_json(indent=2) for event in event_details]
             )
             return MCPResponse(status="OK", payload=payload)
 
@@ -310,10 +304,7 @@ class CalDAVServer:
             target_event = None
             for ev in results:
                 try:
-                    if (
-                        hasattr(ev.instance.vevent, "uid")
-                        and ev.instance.vevent.uid.value == event_uid
-                    ):
+                    if hasattr(ev.instance.vevent, "uid") and ev.instance.vevent.uid.value == event_uid:
                         target_event = ev
                         break
                 except Exception:
@@ -342,9 +333,7 @@ class CalDAVServer:
 
             calendar_list: list[str] = []
             for i, cal in enumerate(self.calendars):
-                calendar_list.append(
-                    f"{i+1}. Name: {cal.name} - ID: {cal.id} - URL: {cal.url}"
-                )
+                calendar_list.append(f"{i + 1}. Name: {cal.name} - ID: {cal.id} - URL: {cal.url}")
 
             payload = f"Available calendars:\n" + "\n".join(calendar_list)
             return MCPResponse(status="OK", payload=payload)
@@ -380,14 +369,7 @@ class CalDAVServer:
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
-
-    async def get_availability_for_email(
-        self,
-        email: str,
-        start: datetime,
-        end: datetime,
-        ctx: Context
-    ) -> list[CalEventEntryContract]:
+    async def get_availability_for_email(self, email: str, start: datetime, end: datetime, ctx: Context) -> list[CalEventEntryContract]:
         """
         Get busy periods for a given email between start and end.
         - Checks free/busy for org members (CalDAV free-busy-query)
@@ -404,60 +386,64 @@ class CalDAVServer:
             for cal in self.calendars:
                 cal: CalDAVCalendar = cal
                 if getattr(cal, "email", "").lower() == email.lower():
-                    await log(f"Found shared calendar for {email}, checking events...", "info", logger, ctx)
+                    await log(
+                        f"Found shared calendar for {email}, checking events...",
+                        "info",
+                        logger,
+                        ctx,
+                    )
                     events = cal.date_search(start=start, end=end)
                     for ev in events:
                         busy_entries.extend(event_to_dict_list(ev))
                     return [e for e in busy_entries if e._type == "VBUSY" or e._type == "VEVENT"]
 
             # 2. If not a shared calendar, try an org-level free/busy query
-    #         if ctx:
-    #             await ctx.info(f"No shared calendar found, querying org free/busy for {email}...")
-    #         report_xml = f"""<?xml version="1.0" encoding="utf-8" ?>
-    # <C:free-busy-query xmlns:C="urn:ietf:params:xml:ns:caldav">
-    # <C:time-range start="{start.strftime('%Y%m%dT%H%M%SZ')}"
-    #                 end="{end.strftime('%Y%m%dT%H%M%SZ')}"/>
-    # </C:free-busy-query>
-    # """
-    #         cal_url = urljoin(self.url, f"{email}/events/")
-    #         headers = {"Content-Type": "application/xml; charset=utf-8"}
-    #         resp = requests.request(
-    #             "REPORT",
-    #             cal_url,
-    #             data=report_xml,
-    #             headers=headers,
-    #             auth=(self.user, self.password),
-    #         )
-    #         resp.raise_for_status()
+        #         if ctx:
+        #             await ctx.info(f"No shared calendar found, querying org free/busy for {email}...")
+        #         report_xml = f"""<?xml version="1.0" encoding="utf-8" ?>
+        # <C:free-busy-query xmlns:C="urn:ietf:params:xml:ns:caldav">
+        # <C:time-range start="{start.strftime('%Y%m%dT%H%M%SZ')}"
+        #                 end="{end.strftime('%Y%m%dT%H%M%SZ')}"/>
+        # </C:free-busy-query>
+        # """
+        #         cal_url = urljoin(self.url, f"{email}/events/")
+        #         headers = {"Content-Type": "application/xml; charset=utf-8"}
+        #         resp = requests.request(
+        #             "REPORT",
+        #             cal_url,
+        #             data=report_xml,
+        #             headers=headers,
+        #             auth=(self.user, self.password),
+        #         )
+        #         resp.raise_for_status()
 
-    #         cal: Component = Calendar.from_ical(resp.text)
-    #         for component in cal.walk():
-    #             component: Component = component
-    #             if component.name == "VFREEBUSY":
-    #                 freebusy_values = component.get("FREEBUSY")
-    #                 if not isinstance(freebusy_values, list):
-    #                     freebusy_values = [freebusy_values]
-    #                 for period in freebusy_values:
-    #                     fbtype = period.params.get("FBTYPE", "BUSY").upper()
-    #                     if fbtype == "FREE":
-    #                         continue
-    #                     busy_entries.append(
-    #                         CalEventEntryContract(
-    #                             _type="VBUSY",
-    #                             cal_url=cal.url,
-    #                             summary="Busy",
-    #                             start_datetime=period.dtstart,
-    #                             end_datetime=period.dtend,
-    #                             extra={"fbtype": fbtype}
-    #                         )
-    #                     )
-    #         return busy_entries
+        #         cal: Component = Calendar.from_ical(resp.text)
+        #         for component in cal.walk():
+        #             component: Component = component
+        #             if component.name == "VFREEBUSY":
+        #                 freebusy_values = component.get("FREEBUSY")
+        #                 if not isinstance(freebusy_values, list):
+        #                     freebusy_values = [freebusy_values]
+        #                 for period in freebusy_values:
+        #                     fbtype = period.params.get("FBTYPE", "BUSY").upper()
+        #                     if fbtype == "FREE":
+        #                         continue
+        #                     busy_entries.append(
+        #                         CalEventEntryContract(
+        #                             _type="VBUSY",
+        #                             cal_url=cal.url,
+        #                             summary="Busy",
+        #                             start_datetime=period.dtstart,
+        #                             end_datetime=period.dtend,
+        #                             extra={"fbtype": fbtype}
+        #                         )
+        #                     )
+        #         return busy_entries
 
         except Exception as e:
             await log(f"Failed to get availability for {email}: {e}", "error", logger, ctx, exception=e)
             traceback.print_exc(file=sys.stderr)
             return []
-
 
 
 # Initialize FastMCP server
@@ -498,7 +484,10 @@ async def create_caldav_event(
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return MCPResponse(status="ERR", error="CalDAV server is not properly configured. Please check environment variables.")
+        return MCPResponse(
+            status="ERR",
+            error="CalDAV server is not properly configured. Please check environment variables.",
+        )
 
     try:
         start_dt = datetime.fromisoformat(start_time)
@@ -516,13 +505,15 @@ async def create_caldav_event(
         return await caldav_server.create_event(event, ctx, attendees=attendees or [])
 
     except ValueError as e:
-        return MCPResponse(status="ERR", error=f"Invalid datetime format: {str(e)}. Please use ISO format (e.g., '2025-08-20T15:00:00')")
+        return MCPResponse(
+            status="ERR",
+            error=f"Invalid datetime format: {str(e)}. Please use ISO format (e.g., '2025-08-20T15:00:00')",
+        )
     except Exception as e:
         error_msg = f"Failed to create CalDAV event: {str(e)}"
         await log(error_msg, "error", logger, ctx, exception=e)
         traceback.print_exc(file=sys.stderr)
         return MCPResponse(status="ERR", error=error_msg)
-
 
 
 @mcp.tool()
@@ -542,7 +533,10 @@ async def get_caldav_events(
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return MCPResponse(status="ERR", error="CalDAV server is not properly configured. Please check environment variables.")
+        return MCPResponse(
+            status="ERR",
+            error="CalDAV server is not properly configured. Please check environment variables.",
+        )
 
     try:
         # Parse datetime strings if provided
@@ -558,7 +552,10 @@ async def get_caldav_events(
         return await caldav_server.get_events(start_dt, end_dt, calendar_id, ctx)
 
     except ValueError as e:
-        return MCPResponse(status="ERR", error=f"Invalid datetime format: {str(e)}. Please use ISO format (e.g., '2025-08-20T15:00:00')")
+        return MCPResponse(
+            status="ERR",
+            error=f"Invalid datetime format: {str(e)}. Please use ISO format (e.g., '2025-08-20T15:00:00')",
+        )
     except Exception as e:
         error_msg = f"Failed to get CalDAV events: {str(e)}"
         await log(error_msg, "error", logger, ctx, exception=e)
@@ -576,7 +573,10 @@ async def delete_caldav_event(event_uid: str, ctx: Context = None) -> MCPRespons
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return MCPResponse(status="ERR", error="CalDAV server is not properly configured. Please check environment variables.")
+        return MCPResponse(
+            status="ERR",
+            error="CalDAV server is not properly configured. Please check environment variables.",
+        )
 
     try:
         return await caldav_server.delete_event(event_uid, ctx)
@@ -597,7 +597,10 @@ async def list_caldav_calendars(ctx: Context) -> MCPResponse:
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return MCPResponse(status="ERR", error="CalDAV server is not properly configured. Please check environment variables.")
+        return MCPResponse(
+            status="ERR",
+            error="CalDAV server is not properly configured. Please check environment variables.",
+        )
 
     try:
         return await caldav_server.list_calendars(ctx)
@@ -618,18 +621,16 @@ async def get_caldav_status(ctx: Context) -> MCPResponse:
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return MCPResponse(status="ERR", error="CalDAV server is not configured. Please check environment variables.")
+        return MCPResponse(
+            status="ERR",
+            error="CalDAV server is not configured. Please check environment variables.",
+        )
 
     status = caldav_server.test_connection()
 
     if status["status"] == "configured":
         await log("CalDAV server is properly configured", "info", logger, ctx)
-        payload = (
-            f"CalDAV server configured successfully:\n"
-            f"URL: {status['url']}\n"
-            f"User: {status['user']}\n"
-            f"Password: {status['password']}"
-        )
+        payload = f"CalDAV server configured successfully:\nURL: {status['url']}\nUser: {status['user']}\nPassword: {status['password']}"
         return MCPResponse(status="OK", payload=payload)
     else:
         await log(f"CalDAV configuration error: {status['error']}", "error", logger, ctx)
@@ -657,7 +658,10 @@ async def create_quick_caldav_event(
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return MCPResponse(status="ERR", error="CalDAV server is not properly configured. Please check environment variables.")
+        return MCPResponse(
+            status="ERR",
+            error="CalDAV server is not properly configured. Please check environment variables.",
+        )
 
     try:
         # Set date (default to today)
@@ -688,16 +692,11 @@ async def create_quick_caldav_event(
 
 
 @mcp.tool()
-async def get_caldav_availability(
-    email: str,
-    start_date: str,
-    end_date: str,
-    ctx: Context
-) -> MCPResponse:
+async def get_caldav_availability(email: str, start_date: str, end_date: str, ctx: Context) -> MCPResponse:
     """
     Get busy periods for a given email in the CalDAV server.
     Checks both shared calendars and org-level free/busy.
-    
+
     Args:
         email: Email address of the calendar owner
         start_date: ISO datetime string (UTC) for range start
@@ -711,27 +710,27 @@ async def get_caldav_availability(
         start_dt = datetime.fromisoformat(start_date)
         end_dt = datetime.fromisoformat(end_date)
 
-        entries = await caldav_server.get_availability_for_email(
-            email=email,
-            start=start_dt,
-            end=end_dt,
-            ctx=ctx
-        )
+        entries = await caldav_server.get_availability_for_email(email=email, start=start_dt, end=end_dt, ctx=ctx)
 
         if not entries:
-            return MCPResponse(status="OK", payload=f"No busy periods found for {email} between {start_date} and {end_date}.")
+            return MCPResponse(
+                status="OK",
+                payload=f"No busy periods found for {email} between {start_date} and {end_date}.",
+            )
 
         payload = "\n\n".join(e.model_dump_json(indent=2) for e in entries)
         return MCPResponse(status="OK", payload=payload)
 
     except ValueError:
-        return MCPResponse(status="ERR", error="Invalid datetime format. Please use ISO format, e.g. '2025-08-20T15:00:00'.")
+        return MCPResponse(
+            status="ERR",
+            error="Invalid datetime format. Please use ISO format, e.g. '2025-08-20T15:00:00'.",
+        )
     except Exception as e:
         error_msg = f"Failed to get availability for {email}: {e}"
         await log(error_msg, "error", logger, ctx, exception=e)
         traceback.print_exc(file=sys.stderr)
         return MCPResponse(status="ERR", error=error_msg)
-
 
 
 @mcp.tool()
@@ -743,7 +742,10 @@ async def test_caldav_connection(ctx: Context) -> MCPResponse:
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return MCPResponse(status="ERR", error="CalDAV server is not properly configured. Please check environment variables.")
+        return MCPResponse(
+            status="ERR",
+            error="CalDAV server is not properly configured. Please check environment variables.",
+        )
 
     try:
         await log("Testing CalDAV connection...", "info", logger, ctx)
@@ -764,10 +766,9 @@ async def test_caldav_connection(ctx: Context) -> MCPResponse:
         return MCPResponse(status="ERR", error=error_msg)
 
 
-
-
 async def main():
     """Main function to start the CalDAV MCP server"""
+
     def log_info():
         if not caldav_configured:
             log("WARNING: CalDAV server is not properly configured!", "warning", logger, None)
@@ -777,7 +778,7 @@ async def main():
             log("  CALDAV_PASSWORD - Your CalDAV password", "info", logger, None)
             log("  MCP_HOST - MCP server host (default: localhost)", "info", logger, None)
             log("  MCP_PORT - MCP server port (default: 8009)", "info", logger, None)
-    
+
     await start_mcp_server(mcp, MCP_HOST, MCP_PORT, logger, log_info)
 
 

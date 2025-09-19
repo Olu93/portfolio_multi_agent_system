@@ -33,9 +33,7 @@ class RateLimiter:
     async def acquire(self):
         now = datetime.now()
         # Remove requests older than 1 minute
-        self.requests = [
-            req for req in self.requests if now - req < timedelta(minutes=1)
-        ]
+        self.requests = [req for req in self.requests if now - req < timedelta(minutes=1)]
 
         if len(self.requests) >= self.requests_per_minute:
             # Wait until we can make another request
@@ -48,9 +46,7 @@ class RateLimiter:
 
 class DuckDuckGoSearcher:
     BASE_URL = "https://html.duckduckgo.com/html"
-    HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
+    HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
 
     def __init__(self):
         self.rate_limiter = RateLimiter()
@@ -71,9 +67,7 @@ class DuckDuckGoSearcher:
 
         return "\n".join(output)
 
-    async def search(
-        self, query: str, ctx: Context, max_results: int = 10
-    ) -> List[SearchResult]:
+    async def search(self, query: str, ctx: Context, max_results: int = 10) -> List[SearchResult]:
         try:
             # Apply rate limiting
             await self.rate_limiter.acquire()
@@ -88,9 +82,7 @@ class DuckDuckGoSearcher:
             await log(f"Searching DuckDuckGo for: {query}", "info", logger, ctx)
 
             async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.BASE_URL, data=data, headers=self.HEADERS, timeout=30.0
-                )
+                response = await client.post(self.BASE_URL, data=data, headers=self.HEADERS, timeout=30.0)
                 response.raise_for_status()
 
             # Parse HTML response
@@ -164,9 +156,7 @@ class WebContentFetcher:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     url,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    },
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
                     follow_redirects=True,
                     timeout=30.0,
                 )
@@ -194,14 +184,25 @@ class WebContentFetcher:
             if len(text) > 8000:
                 text = text[:8000] + "... [content truncated]"
 
-            await log(f"Successfully fetched and parsed content ({len(text)} characters)", "info", logger, ctx)
+            await log(
+                f"Successfully fetched and parsed content ({len(text)} characters)",
+                "info",
+                logger,
+                ctx,
+            )
             return text
 
         except httpx.TimeoutException:
             await log(f"Request timed out for URL: {url}", "error", logger, ctx)
             return "Error: The request timed out while trying to fetch the webpage."
         except httpx.HTTPError as e:
-            await log(f"HTTP error occurred while fetching {url}: {str(e)}", "error", logger, ctx, exception=e)
+            await log(
+                f"HTTP error occurred while fetching {url}: {str(e)}",
+                "error",
+                logger,
+                ctx,
+                exception=e,
+            )
             return f"Error: Could not access the webpage ({str(e)})"
         except Exception as e:
             await log(f"Error fetching content from {url}: {str(e)}", "error", logger, ctx, exception=e)
@@ -212,6 +213,7 @@ class WebContentFetcher:
 mcp = FastMCP("ddg-search", host=MCP_HOST, port=MCP_PORT)
 searcher = DuckDuckGoSearcher()
 fetcher = WebContentFetcher()
+
 
 @mcp.tool()
 async def wait_before_trying_again(seconds: int, ctx: Context) -> MCPResponse:
@@ -258,13 +260,11 @@ async def search(query: str, ctx: Context, max_results: int = 10) -> MCPResponse
 #     return await fetcher.fetch_and_parse(url, ctx)
 
 
-
-
 async def main():
     """Main function to start the DuckDuckGo MCP server"""
-    
+
     await start_mcp_server(mcp, MCP_HOST, MCP_PORT, logger, None)
 
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

@@ -1,13 +1,13 @@
 # File Name : registry_server.py
 # This program Creates In-memory based AI Agents regisry-server using Google A2A protocol
-# Author: Sreeni Ramadurai 
+# Author: Sreeni Ramadurai
 # https://dev.to/sreeni5018/building-an-ai-agent-registry-server-with-fastapi-enabling-seamless-agent-discovery-via-a2a-15dj
 
 import json
 import os
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from pydantic import  HttpUrl
+from pydantic import HttpUrl
 import time
 import asyncio
 from contextlib import asynccontextmanager
@@ -23,19 +23,15 @@ from python_a2a.discovery import AgentRegistry
 from a2a_servers.a2a_client import async_send_message_streaming
 from a2a_servers.utils.models import AgentRegistration, ChatReq, HeartbeatRequest, LookupRequest
 
-logger = logging.getLogger(__name__)    
-
+logger = logging.getLogger(__name__)
 
 
 # Create registry server and FastAPI app
-registry_server = AgentRegistry(
-    name="A2A Registry Server",
-    description="Registry server for agent discovery"
-)
+registry_server = AgentRegistry(name="A2A Registry Server", description="Registry server for agent discovery")
 
 # Constants for cleanup
 HEARTBEAT_TIMEOUT = 30  # seconds
-CLEANUP_INTERVAL = 10   # seconds
+CLEANUP_INTERVAL = 10  # seconds
 A2A_AGENT_URL = os.getenv("A2A_AGENT_URL", "http://ohcm_supervisor_agent:10020")
 
 
@@ -43,12 +39,17 @@ A2A_AGENT_URL = os.getenv("A2A_AGENT_URL", "http://ohcm_supervisor_agent:10020")
 async def lifespan(app: FastAPI):
     """Start the cleanup task when the server starts."""
     cleanup_task = asyncio.create_task(cleanup_stale_agents())
-    logger.info("Starting A2A Chat Service") 
+    logger.info("Starting A2A Chat Service")
     yield
     logger.info("Shutting down A2A Chat Service")
     cleanup_task.cancel()
 
-app = FastAPI(title="A2A Agent Registry Server", description="FastAPI server for agent discovery", lifespan=lifespan)
+
+app = FastAPI(
+    title="A2A Agent Registry Server",
+    description="FastAPI server for agent discovery",
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -57,6 +58,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 async def cleanup_stale_agents():
     """Periodically clean up agents that haven't sent heartbeats."""
@@ -81,17 +83,20 @@ async def cleanup_stale_agents():
 
         await asyncio.sleep(CLEANUP_INTERVAL)
 
+
 @app.post("/registry/register", response_model=AgentCard, status_code=201)
 async def register_agent(registration: AgentRegistration):
     """Registers a new agent with the registry."""
-    agent_card = AgentCard(**registration.model_dump(mode='python'))
+    agent_card = AgentCard(**registration.model_dump(mode="python"))
     registry_server.register_agent(agent_card)
     return agent_card
+
 
 @app.get("/registry/agents", response_model=list[AgentCard])
 async def list_registered_agents():
     """Lists all currently registered agents."""
     return list(registry_server.get_all_agents())
+
 
 @app.post("/registry/lookup", response_model=AgentCard)
 async def lookup_agent(lookup_request: LookupRequest):
@@ -101,11 +106,13 @@ async def lookup_agent(lookup_request: LookupRequest):
         return agent
     raise HTTPException(status_code=404, detail=f"Agent with URL '{lookup_request.url}' not found")
 
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     logger.info("Health check endpoint called")
     return {"status": "healthy"}
+
 
 @app.post("/registry/heartbeat")
 async def heartbeat(request: HeartbeatRequest):
@@ -120,6 +127,7 @@ async def heartbeat(request: HeartbeatRequest):
     except Exception as e:
         logger.error(f"Error processing heartbeat: {e}")
         return {"success": False, "error": str(e)}, 400
+
 
 @app.get("/registry/agents/{url}", response_model=AgentCard)
 async def get_agent(url: HttpUrl):
@@ -159,8 +167,9 @@ async def chat_non_stream(body: ChatReq):
         lines.append(json.loads(line))
     return {"chunks": lines}
 
+
 if __name__ == "__main__":
     REGISTRY_HOST = os.getenv("HOST", "0.0.0.0")
     REGISTRY_PORT = int(os.getenv("PORT", 8000))
     logger.info(f"Starting registry server on {REGISTRY_HOST}:{REGISTRY_PORT}")
-    uvicorn.run(app, host=REGISTRY_HOST, port=REGISTRY_PORT) 
+    uvicorn.run(app, host=REGISTRY_HOST, port=REGISTRY_PORT)

@@ -14,13 +14,9 @@ LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", "logs/app.log")
 LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", 10 * 1024 * 1024))  # 10 MB
 LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", 5))
 
-LOG_FORMAT_STDOUT = (
-    "%(log_color)s[%(asctime)s] %(levelname)s in %(module)s: %(message)s"
-)
-LOG_FORMAT_FILE = (
-    '{"timestamp": "%(asctime)s", "level": "%(levelname)s", '
-    '"module": "%(module)s", "message": "%(message)s"}'
-)
+LOG_FORMAT_STDOUT = "%(log_color)s[%(asctime)s] %(levelname)s in %(module)s: %(message)s"
+LOG_FORMAT_FILE = '{"timestamp": "%(asctime)s", "level": "%(levelname)s", "module": "%(module)s", "message": "%(message)s"}'
+
 
 def configure_logging():
     root_logger = logging.getLogger()
