@@ -120,6 +120,7 @@ services:
     depends_on:
       agent-registry:
         condition: service_healthy
+        
 
   finance-agent:
     build:

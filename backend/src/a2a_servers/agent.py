@@ -43,7 +43,7 @@ _registration_cache = {}
 
 # Cache expiration time (in seconds) - how long to trust cached registration status
 CACHE_EXPIRY_SECONDS = int(os.getenv("REGISTRATION_CACHE_EXPIRY", "300"))  # 5 minutes default
-
+AGENT_HEARTBEAT_INTERVAL = int(os.getenv("AGENT_HEARTBEAT_INTERVAL", "30"))
 
 def _is_cache_valid(cache_entry):
     """Check if a cache entry is still valid based on timestamp."""
@@ -117,6 +117,7 @@ class SubAgent(BaseAgent):
                 logger.warning(
                     f"Tool {tool} is not using the correct URL format. Please use the correct URL format. The URL is {tool_config_dict[tool]['url']}"
                 )
+        # BLOG: Assumes that all the MCP services are reachable and running. If not, the agent will fail to build. Explain how you could handle this differently
         client = MultiServerMCPClient(tool_config_dict)
         tools = await client.get_tools()
         return tools
@@ -341,7 +342,7 @@ def run_agent_server(agent_name: str):
 
             # Start the periodic registration task
             registration_task = asyncio.create_task(periodic_registration_check(agent_card))
-            interval = os.getenv("AGENT_HEARTBEAT_INTERVAL", "30")
+            interval = AGENT_HEARTBEAT_INTERVAL
             logger.info(f"Started periodic registration check for agent {agent_card.name} with {interval}s interval")
 
             yield
