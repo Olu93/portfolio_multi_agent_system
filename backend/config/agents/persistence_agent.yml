@@ -1,0 +1,21 @@
+name: "Persistence-Agent"
+description: "A agent that can use multiple persistence tools such as Postgres and File Directory to store and retrieve data"
+agent_url: "http://ohcm_persistence_agent:10020"
+tools:
+  - name: "Postgres"
+    description: "An agent that can store and retrieve data using Postgres"
+    tags: ["search", "web search", "information gathering", "postgres"]
+    examples: ["Save the results of the web search to the database", "Create a new table in the database", "Display the top 5 rows of the table", "Delete the table from the database"]
+    mcp_server: 
+      url: "http://ohcm_postgres_mcp:8000/mcp"
+      transport: "streamable_http"
+
+  - name: File Storage
+    description: "An agent that can store and retrieve data using File Directory"
+    tags: ["file directory", "file storage", "file system", "file management", "file navigation", "file operations"]
+    examples: ["Store the json response to the file directory", "Store the screenshot to the file directory", "Store the html response to the file directory", "Delete the file from the file directory"]
+    mcp_server: 
+      url: "http://ohcm_file_storage_mcp:8000/mcp"
+      transport: "streamable_http"
+meta_prompt: "You are a helpful assistant that can use multiple persistence tools such as Postgres and File Directory to store and retrieve data"
+prompt_file: "persistence_agent.txt"

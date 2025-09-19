@@ -1,5 +1,5 @@
 name: "Web-Search-Agent"
-description: "A agent that can use multiple web search tools such as DuckDuckGo, Serper and others"
+description: "A agent that can use multiple web search tools such as DuckDuckGo, Serper and others to search and navigate the web"
 agent_url: "http://ohcm_web_search_agent:10020"
 tools:
   - name: "DuckDuckGo"
@@ -16,5 +16,12 @@ tools:
     mcp_server: 
       url: "http://ohcm_serper_mcp:8000/mcp"
       transport: "streamable_http"
-meta_prompt: "You are a helpful assistant that can use multiple web search tools such as DuckDuckGo, Serper and others"
+  - name: Playwright
+    description: "An agent that can look at web resources using Playwright"
+    tags: ["web resources", "playwright", "browser", "scraping", "web scraping", "browser automation", "screenshot", "web navigation"]
+    examples: ["Open the website https://www.example.com and take a screenshot"]
+    mcp_server: 
+      url: "http://ohcm_playwright_mcp:8000/mcp"
+      transport: "streamable_http"
+meta_prompt: "You are a helpful assistant that can use multiple web search tools such as DuckDuckGo, Serper and others to search and navigate the web"
 prompt_file: "web_search_agent.txt"
