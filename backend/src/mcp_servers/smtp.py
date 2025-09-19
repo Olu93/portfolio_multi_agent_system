@@ -19,7 +19,7 @@ load_dotenv(find_dotenv())
 
 # Get configuration from environment variables
 MCP_HOST = os.getenv("MCP_HOST", "localhost")
-MCP_PORT = int(os.getenv("MCP_PORT", "8002"))
+MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 
 # SMTP Configuration
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
@@ -416,27 +416,13 @@ async def validate_email_address(email: str, ctx: Context) -> str:
 
 
 if __name__ == "__main__":
-    print("=== Starting SMTP MCP Server ===")
-    print(f"Server will run on {MCP_HOST}:{MCP_PORT}")
     
     if not smtp_configured:
         print("WARNING: SMTP server is not properly configured!")
-        print("Please set the following environment variables:")
-        print("  SMTP_HOST - SMTP server hostname")
-        print("  SMTP_PORT - SMTP server port")
-        print("  SMTP_USERNAME - SMTP username/email")
-        print("  SMTP_PASSWORD - SMTP password/app password")
-        print("  SMTP_USE_TLS - Use STARTTLS (true/false)")
-        print("  SMTP_USE_SSL - Use SSL (true/false)")
-        print("  DEFAULT_FROM_EMAIL - Default sender email")
-        print("  MCP_HOST - MCP server host (default: localhost)")
-        print("  MCP_PORT - MCP server port (default: 8002)")
     
     try:
-        print("Server initialized and ready to handle connections")
         mcp.run(transport="streamable-http")
     except Exception as e:
-        print(f"Server crashed: {str(e)}")
         traceback.print_exc()
         raise
     finally:

@@ -16,7 +16,7 @@ load_dotenv(find_dotenv())
 
 # Get configuration from environment variables
 MCP_HOST = os.getenv("MCP_HOST", "localhost")
-MCP_PORT = int(os.getenv("MCP_PORT", "8001"))
+MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 
 
 @dataclass

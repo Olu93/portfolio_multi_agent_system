@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("yfinance-mcp-server")
 # Get configuration from environment variables
 MCP_HOST = os.getenv("MCP_HOST", "localhost")
-MCP_PORT = int(os.getenv("MCP_PORT", "8007"))
+MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 
 
 # Utility Functions

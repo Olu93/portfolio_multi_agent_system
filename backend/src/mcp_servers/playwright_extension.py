@@ -18,7 +18,7 @@ from mcp_servers.utils.models import MCPResponse
 log = logging.getLogger(__name__)
 
 MCP_HOST = os.getenv("MCP_HOST", "localhost")
-MCP_PORT = int(os.getenv("MCP_PORT", "8002"))
+MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 PW_CHANNEL = os.getenv("PLAYWRIGHT_CHANNEL")  # e.g., "chrome"
 PW_HEADLESS = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() in {"1", "true", "yes"}
 
