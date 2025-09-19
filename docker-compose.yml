@@ -5,3 +5,4 @@ version: '3.8'
 include:
   - docker-compose.a2a.yml
   - docker-compose.mcp.yml
+  - docker-compose.db.yml
