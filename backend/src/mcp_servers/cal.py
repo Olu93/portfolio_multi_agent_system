@@ -1,17 +1,17 @@
 from fastmcp import FastMCP, Context
-from utils.models import MCPResponse
-from utils.helper import log, start_mcp_server
+from mcp_servers.utils.models import MCPResponse
+from mcp_servers.utils.helper import log, start_mcp_server
+from mcp_servers.utils.constants import MCP_HOST, MCP_PORT
 import os
+import logging
 import asyncio
 import traceback
 import sys
-import logging
 from typing import List, Optional, Dict, Any, Literal
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from caldav import DAVClient
 from caldav.elements import dav, cdav
-from dotenv import load_dotenv, find_dotenv
 from caldav.calendarobjectresource import Event
 from caldav.collection import Calendar as CalDAVCalendar
 from icalendar import Calendar
@@ -20,13 +20,6 @@ from icalendar.prop import vDDDTypes, TimeBase, vCategory
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-
-# Load environment variables
-load_dotenv(find_dotenv())
-
-# Get configuration from environment variables
-MCP_HOST = os.getenv("MCP_HOST", "localhost")
-MCP_PORT = int(os.getenv("MCP_PORT", "8009"))
 
 # CalDAV Configuration
 CALDAV_URL = os.getenv("CALDAV_URL", "")

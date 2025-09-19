@@ -1,6 +1,8 @@
 from fastmcp import FastMCP, Context
-from utils.models import MCPResponse
-from utils.helper import log, start_mcp_server
+from mcp_servers.utils.models import MCPResponse
+from mcp_servers.utils.helper import log, start_mcp_server
+from mcp_servers.utils.constants import MCP_HOST, MCP_PORT
+import logging
 import httpx
 from bs4 import BeautifulSoup
 from typing import List
@@ -11,17 +13,8 @@ import traceback
 import asyncio
 from datetime import datetime, timedelta
 import re
-import os
-import logging
-from dotenv import load_dotenv, find_dotenv
 
 logger = logging.getLogger(__name__)
-load_dotenv(find_dotenv())
-
-
-# Get configuration from environment variables
-MCP_HOST = os.getenv("MCP_HOST", "localhost")
-MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 
 
 @dataclass

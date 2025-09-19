@@ -1,19 +1,14 @@
 from fastmcp import FastMCP, Context
-from utils.models import MCPResponse
-from utils.helper import log, start_mcp_server
+from mcp_servers.utils.models import MCPResponse
+from mcp_servers.utils.helper import log, start_mcp_server
+from mcp_servers.utils.constants import MCP_HOST, MCP_PORT
 import pathlib
-import os
+import logging
 import base64
 import asyncio
 from typing import Literal
-from dotenv import load_dotenv, find_dotenv
-import logging
-load_dotenv(find_dotenv())
 
 logger = logging.getLogger(__name__)
-# Get configuration from environment variables
-MCP_HOST = os.getenv("MCP_HOST", "localhost")
-MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 
 mcp = FastMCP("file_storage", host=MCP_HOST, port=MCP_PORT)
 

@@ -1,7 +1,9 @@
 from fastmcp import FastMCP, Context
 from mcp_servers.utils.models import MCPResponse
 from mcp_servers.utils.helper import log, start_mcp_server
+from mcp_servers.utils.constants import MCP_HOST, MCP_PORT
 import os
+import logging
 import asyncio
 import traceback
 import sys
@@ -13,17 +15,9 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
-from dotenv import load_dotenv, find_dotenv
 import aiosmtplib
-import logging
 
 logger = logging.getLogger(__name__)
-# Load environment variables
-load_dotenv(find_dotenv())
-
-# Get configuration from environment variables
-MCP_HOST = os.getenv("MCP_HOST", "localhost")
-MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 
 # SMTP Configuration
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")

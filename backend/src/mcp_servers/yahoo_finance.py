@@ -9,8 +9,9 @@ from datetime import datetime
 from fastmcp import FastMCP
 from mcp_servers.utils.models import MCPResponse
 from mcp_servers.utils.helper import log, start_mcp_server
-import os
+from mcp_servers.utils.constants import MCP_HOST, MCP_PORT
 import time
+import logging
 import asyncio
 from enum import Enum
 from typing import Optional, Any, Dict, List
@@ -18,15 +19,8 @@ from threading import Thread, Lock
 import pandas as pd
 import numpy as np
 from yfinance import Ticker
-from dotenv import load_dotenv, find_dotenv
-import logging
-load_dotenv(find_dotenv())
 
-# Configure logging
 logger = logging.getLogger(__name__)
-# Get configuration from environment variables
-MCP_HOST = os.getenv("MCP_HOST", "localhost")
-MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 
 
 # Utility Functions
