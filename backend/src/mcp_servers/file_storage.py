@@ -1,9 +1,10 @@
 from fastmcp import FastMCP, Context
 from utils.models import MCPResponse
-from utils.helper import log
+from utils.helper import log, start_mcp_server
 import pathlib
 import os
 import base64
+import asyncio
 from typing import Literal
 from dotenv import load_dotenv, find_dotenv
 import logging
@@ -31,11 +32,11 @@ async def bytes_to_base64(data_bytes: bytes, ctx: Context) -> MCPResponse:
         ctx: MCP context for logging
     """
     try:
-        log(f"Converting {len(data_bytes)} bytes to base64", "info", logger, ctx)
+        await log(f"Converting {len(data_bytes)} bytes to base64", "info", logger, ctx)
         
         base64_string = base64.b64encode(data_bytes).decode('utf-8')
         
-        log(f"Successfully converted {len(data_bytes)} bytes to base64 string of length {len(base64_string)}", "info", logger, ctx)
+        await log(f"Successfully converted {len(data_bytes)} bytes to base64 string of length {len(base64_string)}", "info", logger, ctx)
         
         return MCPResponse(
             status="OK", 
@@ -46,7 +47,7 @@ async def bytes_to_base64(data_bytes: bytes, ctx: Context) -> MCPResponse:
             }
         )
     except Exception as e:
-        log(f"Failed to convert bytes to base64: {str(e)}", "error", logger, ctx, exception=e)
+        await log(f"Failed to convert bytes to base64: {str(e)}", "error", logger, ctx, exception=e)
         return MCPResponse(
             status="ERR", 
             payload={"message": "Failed to convert bytes to base64"},
@@ -65,38 +66,38 @@ async def store_file(base64_data: str, file_name: str, file_type: SupportedFileT
         ctx: MCP context for logging
     """
     try:
-        log(f"Storing file '{file_name}{file_type}' in {DEFAULT_STORAGE_PATH}", "info", logger, ctx)
+        await log(f"Storing file '{file_name}{file_type}' in {DEFAULT_STORAGE_PATH}", "info", logger, ctx)
         
         # Ensure storage directory exists
         if not pathlib.Path(DEFAULT_STORAGE_PATH).exists():
-            log(f"Creating storage directory: {DEFAULT_STORAGE_PATH}", "info", logger, ctx)
+            await log(f"Creating storage directory: {DEFAULT_STORAGE_PATH}", "info", logger, ctx)
             pathlib.Path(DEFAULT_STORAGE_PATH).mkdir(parents=True, exist_ok=True)
         
         # Create full file path with extension
         full_file_name = f"{file_name}{file_type}"
         file_path = pathlib.Path(DEFAULT_STORAGE_PATH, full_file_name)
         
-        log(f"Full file path: {file_path}", "debug", logger, ctx)
+        await log(f"Full file path: {file_path}", "debug", logger, ctx)
         
         # Decode base64 data
-        log(f"Decoding base64 data of length {len(base64_data)}", "debug", logger, ctx)
+        await log(f"Decoding base64 data of length {len(base64_data)}", "debug", logger, ctx)
         file_data = base64.b64decode(base64_data)
         
-        log(f"Decoded {len(file_data)} bytes from base64", "info", logger, ctx)
+        await log(f"Decoded {len(file_data)} bytes from base64", "info", logger, ctx)
         
         # Write file based on type
         if file_type in [".json", ".jsonl", ".txt", ".html", ".xml", ".csv"]:
             # Text-based files
-            log(f"Writing as text file with UTF-8 encoding", "debug", logger, ctx)
+            await log(f"Writing as text file with UTF-8 encoding", "debug", logger, ctx)
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(file_data.decode('utf-8'))
         else:
             # Binary files (images, etc.)
-            log(f"Writing as binary file", "debug", logger, ctx)
+            await log(f"Writing as binary file", "debug", logger, ctx)
             with open(file_path, "wb") as f:
                 f.write(file_data)
         
-        log(f"Successfully stored file '{full_file_name}' ({len(file_data)} bytes)", "info", logger, ctx)
+        await log(f"Successfully stored file '{full_file_name}' ({len(file_data)} bytes)", "info", logger, ctx)
         
         return MCPResponse(
             status="OK", 
@@ -109,7 +110,7 @@ async def store_file(base64_data: str, file_name: str, file_type: SupportedFileT
             }
         )
     except Exception as e:
-        log(f"Failed to store file '{file_name}{file_type}': {str(e)}", "error", logger, ctx, exception=e)
+        await log(f"Failed to store file '{file_name}{file_type}': {str(e)}", "error", logger, ctx, exception=e)
         return MCPResponse(
             status="ERR", 
             payload={"message": "Failed to store file"},
@@ -127,28 +128,28 @@ async def get_file(file_name: str, file_type: SupportedFileType, ctx: Context) -
         ctx: MCP context for logging
     """
     try:
-        log(f"Getting file '{file_name}{file_type}' from {DEFAULT_STORAGE_PATH}", "info", logger, ctx)
+        await log(f"Getting file '{file_name}{file_type}' from {DEFAULT_STORAGE_PATH}", "info", logger, ctx)
         
         # Create full file path
         full_file_name = f"{file_name}{file_type}"
         file_path = pathlib.Path(DEFAULT_STORAGE_PATH, full_file_name)
         
-        log(f"Looking for file at: {file_path}", "debug", logger, ctx)
+        await log(f"Looking for file at: {file_path}", "debug", logger, ctx)
         
         if not file_path.exists():
-            log(f"File not found: {full_file_name}", "warning", logger, ctx)
+            await log(f"File not found: {full_file_name}", "warning", logger, ctx)
             return MCPResponse(
                 status="ERR", 
                 payload={"message": "File not found"},
                 error=f"File {full_file_name} not found in {DEFAULT_STORAGE_PATH}"
             )
         
-        log(f"File found, reading {file_path}", "info", logger, ctx)
+        await log(f"File found, reading {file_path}", "info", logger, ctx)
         
         # Read file based on type
         if file_type in [".json", ".jsonl", ".txt", ".html", ".xml", ".csv"]:
             # Text-based files
-            log(f"Reading as text file with UTF-8 encoding", "debug", logger, ctx)
+            await log(f"Reading as text file with UTF-8 encoding", "debug", logger, ctx)
             with open(file_path, "r", encoding="utf-8") as f:
                 file_content = f.read()
             # Encode text as base64
@@ -156,14 +157,14 @@ async def get_file(file_name: str, file_type: SupportedFileType, ctx: Context) -
             file_size = len(file_content.encode('utf-8'))
         else:
             # Binary files
-            log(f"Reading as binary file", "debug", logger, ctx)
+            await log(f"Reading as binary file", "debug", logger, ctx)
             with open(file_path, "rb") as f:
                 file_data = f.read()
             # Encode binary as base64
             base64_data = base64.b64encode(file_data).decode('utf-8')
             file_size = len(file_data)
         
-        log(f"Successfully read file '{full_file_name}' ({file_size} bytes)", "info", logger, ctx)
+        await log(f"Successfully read file '{full_file_name}' ({file_size} bytes)", "info", logger, ctx)
         
         return MCPResponse(
             status="OK", 
@@ -177,7 +178,7 @@ async def get_file(file_name: str, file_type: SupportedFileType, ctx: Context) -
             }
         )
     except Exception as e:
-        log(f"Failed to retrieve file '{file_name}{file_type}': {str(e)}", "error", logger, ctx, exception=e)
+        await log(f"Failed to retrieve file '{file_name}{file_type}': {str(e)}", "error", logger, ctx, exception=e)
         return MCPResponse(
             status="ERR", 
             payload={"message": "Failed to retrieve file"},
@@ -195,16 +196,16 @@ async def delete_file(file_name: str, file_type: SupportedFileType, ctx: Context
         ctx: MCP context for logging
     """
     try:
-        log(f"Deleting file '{file_name}{file_type}' from {DEFAULT_STORAGE_PATH}", "info", logger, ctx)
+        await log(f"Deleting file '{file_name}{file_type}' from {DEFAULT_STORAGE_PATH}", "info", logger, ctx)
         
         # Create full file path
         full_file_name = f"{file_name}{file_type}"
         file_path = pathlib.Path(DEFAULT_STORAGE_PATH, full_file_name)
         
-        log(f"Looking for file to delete at: {file_path}", "debug", logger, ctx)
+        await log(f"Looking for file to delete at: {file_path}", "debug", logger, ctx)
         
         if not file_path.exists():
-            log(f"File not found for deletion: {full_file_name}", "warning", logger, ctx)
+            await log(f"File not found for deletion: {full_file_name}", "warning", logger, ctx)
             return MCPResponse(
                 status="ERR", 
                 payload={"message": "File not found"},
@@ -213,12 +214,12 @@ async def delete_file(file_name: str, file_type: SupportedFileType, ctx: Context
         
         # Get file size before deletion for logging
         file_size = file_path.stat().st_size
-        log(f"File found ({file_size} bytes), proceeding with deletion", "info", logger, ctx)
+        await log(f"File found ({file_size} bytes), proceeding with deletion", "info", logger, ctx)
         
         # Delete the file
         file_path.unlink()
         
-        log(f"Successfully deleted file '{full_file_name}' ({file_size} bytes)", "info", logger, ctx)
+        await log(f"Successfully deleted file '{full_file_name}' ({file_size} bytes)", "info", logger, ctx)
         
         return MCPResponse(
             status="OK", 
@@ -229,7 +230,7 @@ async def delete_file(file_name: str, file_type: SupportedFileType, ctx: Context
             }
         )
     except Exception as e:
-        log(f"Failed to delete file '{file_name}{file_type}': {str(e)}", "error", logger, ctx, exception=e)
+        await log(f"Failed to delete file '{file_name}{file_type}': {str(e)}", "error", logger, ctx, exception=e)
         return MCPResponse(
             status="ERR", 
             payload={"message": "Failed to delete file"},
@@ -245,10 +246,10 @@ async def list_files(ctx: Context) -> MCPResponse:
         ctx: MCP context for logging
     """
     try:
-        log(f"Listing files in {DEFAULT_STORAGE_PATH}", "info", logger, ctx)
+        await log(f"Listing files in {DEFAULT_STORAGE_PATH}", "info", logger, ctx)
         
         if not pathlib.Path(DEFAULT_STORAGE_PATH).exists():
-            log(f"Storage directory does not exist: {DEFAULT_STORAGE_PATH}", "info", logger, ctx)
+            await log(f"Storage directory does not exist: {DEFAULT_STORAGE_PATH}", "info", logger, ctx)
             return MCPResponse(
                 status="OK", 
                 payload={
@@ -260,7 +261,7 @@ async def list_files(ctx: Context) -> MCPResponse:
         storage_path = pathlib.Path(DEFAULT_STORAGE_PATH)
         files = []
         
-        log(f"Scanning directory: {storage_path}", "debug", logger, ctx)
+        await log(f"Scanning directory: {storage_path}", "debug", logger, ctx)
         
         for file_path in storage_path.iterdir():
             if file_path.is_file():
@@ -271,9 +272,9 @@ async def list_files(ctx: Context) -> MCPResponse:
                     "modified": file_path.stat().st_mtime
                 }
                 files.append(file_info)
-                log(f"Found file: {file_path.name} ({file_info['size']} bytes)", "debug", logger, ctx)
+                await log(f"Found file: {file_path.name} ({file_info['size']} bytes)", "debug", logger, ctx)
         
-        log(f"Found {len(files)} files in storage directory", "info", logger, ctx)
+        await log(f"Found {len(files)} files in storage directory", "info", logger, ctx)
         
         return MCPResponse(
             status="OK", 
@@ -283,7 +284,7 @@ async def list_files(ctx: Context) -> MCPResponse:
             }
         )
     except Exception as e:
-        log(f"Failed to list files in {DEFAULT_STORAGE_PATH}: {str(e)}", "error", logger, ctx, exception=e)
+        await log(f"Failed to list files in {DEFAULT_STORAGE_PATH}: {str(e)}", "error", logger, ctx, exception=e)
         return MCPResponse(
             status="ERR", 
             payload={"message": "Failed to list files"},
@@ -292,21 +293,16 @@ async def list_files(ctx: Context) -> MCPResponse:
 
 
 
+async def main():
+    """Main function to start the File Storage MCP server"""
+    def log_info():
+        log(f"Storage directory: {DEFAULT_STORAGE_PATH}", "info", logger, None)
+    
+    await start_mcp_server(mcp, MCP_HOST, MCP_PORT, logger, log_info)
+
+
 if __name__ == "__main__":
-    log("=== Starting File Storage MCP Server ===", "info", logger, None)
-    
-    log(f"Server will run on {MCP_HOST}:{MCP_PORT}", "info", logger, None)
-    
-    log(f"Storage directory: {DEFAULT_STORAGE_PATH}", "info", logger, None)
-    
-    try:
-        log("Server initialized and ready to handle connections", "info", logger, None)
-        mcp.run(transport="streamable-http")
-    except Exception as e:
-        log(f"Server crashed: {str(e)}", "exception", logger, None, exception=e)
-        raise
-    finally:
-        log("=== File Storage MCP Server shutting down ===", "info", logger, None)
+    asyncio.run(main())
 
 
 

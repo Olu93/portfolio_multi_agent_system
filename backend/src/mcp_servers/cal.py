@@ -1,8 +1,11 @@
 from fastmcp import FastMCP, Context
+from utils.models import MCPResponse
+from utils.helper import log, start_mcp_server
 import os
 import asyncio
 import traceback
 import sys
+import logging
 from typing import List, Optional, Dict, Any, Literal
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -15,6 +18,8 @@ from icalendar import Calendar
 from icalendar.cal import Component
 from icalendar.prop import vDDDTypes, TimeBase, vCategory
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv(find_dotenv())
@@ -142,7 +147,7 @@ class CalDAVServer:
     async def connect(self, ctx: Context) -> bool:
         """Connect to CalDAV server and initialize calendars"""
         try:
-            await ctx.info("Connecting to CalDAV server...")
+            await log("Connecting to CalDAV server...", "info", logger, ctx)
 
             # Create client and connect
             self.client = DAVClient(
@@ -152,20 +157,18 @@ class CalDAVServer:
             self.calendars = self.principal.calendars()
 
             if not self.calendars:
-                await ctx.error("No calendars found on CalDAV server")
+                await log("No calendars found on CalDAV server", "error", logger, ctx)
                 return False
 
             # Set primary calendar (first one)
             self.primary_calendar = self.calendars[0]
-            await ctx.info(
-                f"Connected to CalDAV server. Found {len(self.calendars)} calendars"
-            )
-            await ctx.info(f"Primary calendar: {self.primary_calendar.name}")
+            await log(f"Connected to CalDAV server. Found {len(self.calendars)} calendars", "info", logger, ctx)
+            await log(f"Primary calendar: {self.primary_calendar.name}", "info", logger, ctx)
 
             return True
 
         except Exception as e:
-            await ctx.error(f"Failed to connect to CalDAV server: {str(e)}")
+            await log(f"Failed to connect to CalDAV server: {str(e)}", "error", logger, ctx, exception=e)
             return False
 
     def _generate_ical_event(self, event: CalDAVEvent, attendees: List[str] = None) -> str:
@@ -207,14 +210,14 @@ class CalDAVServer:
 
 
 
-    async def create_event(self, event: CalDAVEvent, ctx: Context, attendees: List[str] = None) -> str:
+    async def create_event(self, event: CalDAVEvent, ctx: Context, attendees: List[str] = None) -> MCPResponse:
         """Create a new calendar event and send invites via CalDAV server."""
         try:
             if not self.primary_calendar:
                 if not await self.connect(ctx):
-                    return "Failed to connect to CalDAV server"
+                    return MCPResponse(status="ERR", error="Failed to connect to CalDAV server")
 
-            await ctx.info(f"Creating event: {event.title}")
+            await log(f"Creating event: {event.title}", "info", logger, ctx)
 
             # Generate iCal with attendees
             ical_content = self._generate_ical_event(event, attendees)
@@ -222,14 +225,14 @@ class CalDAVServer:
             # Add event to calendar
             self.primary_calendar.add_event(ical_content)
 
-            await ctx.info("Event created successfully! Invitations sent by server if applicable.")
-            return f"Event '{event.title}' created successfully and invites sent"
+            await log("Event created successfully! Invitations sent by server if applicable.", "info", logger, ctx)
+            return MCPResponse(status="OK", payload=f"Event '{event.title}' created successfully and invites sent")
 
         except Exception as e:
             error_msg = f"Failed to create event: {str(e)}"
-            await ctx.error(error_msg)
+            await log(error_msg, "error", logger, ctx, exception=e)
             traceback.print_exc(file=sys.stderr)
-            return error_msg
+            return MCPResponse(status="ERR", error=error_msg)
 
 
     # TODO: Add limit parameter to get events but keep the default to 10
@@ -239,14 +242,12 @@ class CalDAVServer:
         end_date: Optional[datetime] = None,
         calendar_id: Optional[str] = None,
         ctx: Context = None,
-    ) -> str:
+    ) -> MCPResponse:
         """Get events from the calendar"""
         try:
-
-
             if not self.primary_calendar:
                 if not await self.connect(ctx):
-                    return "Failed to connect to CalDAV server"
+                    return MCPResponse(status="ERR", error="Failed to connect to CalDAV server")
 
             if calendar_id:
                 for cal in self.calendars:
@@ -254,10 +255,9 @@ class CalDAVServer:
                         self.primary_calendar = cal
                         break
                 if not self.primary_calendar:
-                    return f"Calendar with ID {calendar_id} not found"
+                    return MCPResponse(status="ERR", error=f"Calendar with ID {calendar_id} not found")
 
-            if ctx:
-                await ctx.info("Fetching calendar events...")
+            await log("Fetching calendar events...", "info", logger, ctx)
 
             # Set default date range if not provided
             if not start_date:
@@ -268,8 +268,7 @@ class CalDAVServer:
             # Search for events in date range
             results = self.primary_calendar.date_search(start=start_date, end=end_date)
 
-            if ctx:
-                await ctx.info(f"Retrieved {len(results)} events")
+            await log(f"Retrieved {len(results)} events", "info", logger, ctx)
 
             # Format event details
             event_details: list[CalEventEntryContract] = []
@@ -287,26 +286,26 @@ class CalDAVServer:
                     error_event.extra["error"] = str(e)
                     event_details.append(error_event)
 
-            return (
+            payload = (
                 f"Retrieved {len(results)} events from {start_date.date()} to {end_date.date()}:\n\n"
                 + "\n\n".join([event.model_dump_json(indent=2) for event in event_details])
             )
+            return MCPResponse(status="OK", payload=payload)
 
         except Exception as e:
             error_msg = f"Failed to retrieve events: {str(e)}"
-            if ctx:
-                await ctx.error(error_msg)
+            await log(error_msg, "error", logger, ctx, exception=e)
             traceback.print_exc(file=sys.stderr)
-            return error_msg
+            return MCPResponse(status="ERR", error=error_msg)
 
-    async def delete_event(self, event_uid: str, ctx: Context) -> str:
+    async def delete_event(self, event_uid: str, ctx: Context) -> MCPResponse:
         """Delete a calendar event by UID"""
         try:
             if not self.primary_calendar:
                 if not await self.connect(ctx):
-                    return "Failed to connect to CalDAV server"
+                    return MCPResponse(status="ERR", error="Failed to connect to CalDAV server")
 
-            await ctx.info(f"Searching for event with UID: {event_uid}")
+            await log(f"Searching for event with UID: {event_uid}", "info", logger, ctx)
 
             # Search for events in a wide date range to find the specific event
             start_date = datetime.utcnow() - timedelta(days=365)
@@ -328,25 +327,25 @@ class CalDAVServer:
                     continue
 
             if not target_event:
-                return f"Event with UID {event_uid} not found"
+                return MCPResponse(status="ERR", error=f"Event with UID {event_uid} not found")
 
             # Delete the event
             target_event.delete()
-            await ctx.info("Event deleted successfully!")
-            return f"Event with UID {event_uid} deleted successfully"
+            await log("Event deleted successfully!", "info", logger, ctx)
+            return MCPResponse(status="OK", payload=f"Event with UID {event_uid} deleted successfully")
 
         except Exception as e:
             error_msg = f"Failed to delete event: {str(e)}"
-            await ctx.error(error_msg)
+            await log(error_msg, "error", logger, ctx, exception=e)
             traceback.print_exc(file=sys.stderr)
-            return error_msg
+            return MCPResponse(status="ERR", error=error_msg)
 
-    async def list_calendars(self, ctx: Context) -> str:
+    async def list_calendars(self, ctx: Context) -> MCPResponse:
         """List available calendars"""
         try:
             if not self.primary_calendar:
                 if not await self.connect(ctx):
-                    return "Failed to connect to CalDAV server"
+                    return MCPResponse(status="ERR", error="Failed to connect to CalDAV server")
 
             calendar_list: list[str] = []
             for i, cal in enumerate(self.calendars):
@@ -354,26 +353,27 @@ class CalDAVServer:
                     f"{i+1}. Name: {cal.name} - ID: {cal.id} - URL: {cal.url}"
                 )
 
-            return f"Available calendars:\n" + "\n".join(calendar_list)
+            payload = f"Available calendars:\n" + "\n".join(calendar_list)
+            return MCPResponse(status="OK", payload=payload)
 
         except Exception as e:
             error_msg = f"Failed to list calendars: {str(e)}"
-            await ctx.error(error_msg)
+            await log(error_msg, "error", logger, ctx, exception=e)
             traceback.print_exc(file=sys.stderr)
-            return error_msg
+            return MCPResponse(status="ERR", error=error_msg)
 
-    async def get_calendar_by_email(self, email: str, ctx: Context) -> str:
+    async def get_calendar_by_email(self, email: str, ctx: Context) -> MCPResponse:
         """Get a calendar by email"""
         try:
             for cal in self.calendars:
                 if cal.email == email:
-                    return cal.name
+                    return MCPResponse(status="OK", payload=cal.name)
 
         except Exception as e:
             error_msg = f"Failed to get calendar by email: {str(e)}"
-            await ctx.error(error_msg)
+            await log(error_msg, "error", logger, ctx, exception=e)
             traceback.print_exc(file=sys.stderr)
-            return error_msg
+            return MCPResponse(status="ERR", error=error_msg)
 
     def test_connection(self) -> Dict[str, Any]:
         """Test CalDAV connection and return status"""
@@ -411,8 +411,7 @@ class CalDAVServer:
             for cal in self.calendars:
                 cal: CalDAVCalendar = cal
                 if getattr(cal, "email", "").lower() == email.lower():
-                    if ctx:
-                        await ctx.info(f"Found shared calendar for {email}, checking events...")
+                    await log(f"Found shared calendar for {email}, checking events...", "info", logger, ctx)
                     events = cal.date_search(start=start, end=end)
                     for ev in events:
                         busy_entries.extend(event_to_dict_list(ev))
@@ -462,7 +461,7 @@ class CalDAVServer:
     #         return busy_entries
 
         except Exception as e:
-            await ctx.error(f"Failed to get availability for {email}: {e}")
+            await log(f"Failed to get availability for {email}: {e}", "error", logger, ctx, exception=e)
             traceback.print_exc(file=sys.stderr)
             return []
 
@@ -478,7 +477,7 @@ try:
 except Exception as e:
     caldav_server = None
     caldav_configured = False
-    print(f"Warning: CalDAV server not configured: {e}")
+    log(f"Warning: CalDAV server not configured: {e}", "warning", logger, None)
 
 
 @mcp.tool()
@@ -491,7 +490,7 @@ async def create_caldav_event(
     uid: Optional[str] = None,
     attendees: Optional[List[str]] = None,
     ctx: Context = None,
-) -> str:
+) -> MCPResponse:
     """
     Create a new CalDAV calendar event and optionally invite attendees.
 
@@ -506,7 +505,7 @@ async def create_caldav_event(
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return "CalDAV server is not properly configured. Please check environment variables."
+        return MCPResponse(status="ERR", error="CalDAV server is not properly configured. Please check environment variables.")
 
     try:
         start_dt = datetime.fromisoformat(start_time)
@@ -524,13 +523,12 @@ async def create_caldav_event(
         return await caldav_server.create_event(event, ctx, attendees=attendees or [])
 
     except ValueError as e:
-        return f"Invalid datetime format: {str(e)}. Please use ISO format (e.g., '2025-08-20T15:00:00')"
+        return MCPResponse(status="ERR", error=f"Invalid datetime format: {str(e)}. Please use ISO format (e.g., '2025-08-20T15:00:00')")
     except Exception as e:
         error_msg = f"Failed to create CalDAV event: {str(e)}"
-        if ctx:
-            await ctx.error(error_msg)
+        await log(error_msg, "error", logger, ctx, exception=e)
         traceback.print_exc(file=sys.stderr)
-        return error_msg
+        return MCPResponse(status="ERR", error=error_msg)
 
 
 
@@ -540,7 +538,7 @@ async def get_caldav_events(
     end_date: Optional[str] = None,
     calendar_id: Optional[str] = None,
     ctx: Context = None,
-) -> str:
+) -> MCPResponse:
     """
     Get events from the CalDAV calendar.
 
@@ -551,7 +549,7 @@ async def get_caldav_events(
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return "CalDAV server is not properly configured. Please check environment variables."
+        return MCPResponse(status="ERR", error="CalDAV server is not properly configured. Please check environment variables.")
 
     try:
         # Parse datetime strings if provided
@@ -567,17 +565,16 @@ async def get_caldav_events(
         return await caldav_server.get_events(start_dt, end_dt, calendar_id, ctx)
 
     except ValueError as e:
-        return f"Invalid datetime format: {str(e)}. Please use ISO format (e.g., '2025-08-20T15:00:00')"
+        return MCPResponse(status="ERR", error=f"Invalid datetime format: {str(e)}. Please use ISO format (e.g., '2025-08-20T15:00:00')")
     except Exception as e:
         error_msg = f"Failed to get CalDAV events: {str(e)}"
-        if ctx:
-            await ctx.error(error_msg)
+        await log(error_msg, "error", logger, ctx, exception=e)
         traceback.print_exc(file=sys.stderr)
-        return error_msg
+        return MCPResponse(status="ERR", error=error_msg)
 
 
 @mcp.tool()
-async def delete_caldav_event(event_uid: str, ctx: Context = None) -> str:
+async def delete_caldav_event(event_uid: str, ctx: Context = None) -> MCPResponse:
     """
     Delete a CalDAV calendar event by UID.
 
@@ -586,21 +583,20 @@ async def delete_caldav_event(event_uid: str, ctx: Context = None) -> str:
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return "CalDAV server is not properly configured. Please check environment variables."
+        return MCPResponse(status="ERR", error="CalDAV server is not properly configured. Please check environment variables.")
 
     try:
         return await caldav_server.delete_event(event_uid, ctx)
 
     except Exception as e:
         error_msg = f"Failed to delete CalDAV event: {str(e)}"
-        if ctx:
-            await ctx.error(error_msg)
+        await log(error_msg, "error", logger, ctx, exception=e)
         traceback.print_exc(file=sys.stderr)
-        return error_msg
+        return MCPResponse(status="ERR", error=error_msg)
 
 
 @mcp.tool()
-async def list_caldav_calendars(ctx: Context) -> str:
+async def list_caldav_calendars(ctx: Context) -> MCPResponse:
     """
     List available CalDAV calendars.
 
@@ -608,21 +604,20 @@ async def list_caldav_calendars(ctx: Context) -> str:
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return "CalDAV server is not properly configured. Please check environment variables."
+        return MCPResponse(status="ERR", error="CalDAV server is not properly configured. Please check environment variables.")
 
     try:
         return await caldav_server.list_calendars(ctx)
 
     except Exception as e:
         error_msg = f"Failed to list CalDAV calendars: {str(e)}"
-        if ctx:
-            await ctx.error(error_msg)
+        await log(error_msg, "error", logger, ctx, exception=e)
         traceback.print_exc(file=sys.stderr)
-        return error_msg
+        return MCPResponse(status="ERR", error=error_msg)
 
 
 @mcp.tool()
-async def get_caldav_status(ctx: Context) -> str:
+async def get_caldav_status(ctx: Context) -> MCPResponse:
     """
     Get the current CalDAV server configuration status.
 
@@ -630,21 +625,22 @@ async def get_caldav_status(ctx: Context) -> str:
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return "CalDAV server is not configured. Please check environment variables."
+        return MCPResponse(status="ERR", error="CalDAV server is not configured. Please check environment variables.")
 
     status = caldav_server.test_connection()
 
     if status["status"] == "configured":
-        await ctx.info("CalDAV server is properly configured")
-        return (
+        await log("CalDAV server is properly configured", "info", logger, ctx)
+        payload = (
             f"CalDAV server configured successfully:\n"
             f"URL: {status['url']}\n"
             f"User: {status['user']}\n"
             f"Password: {status['password']}"
         )
+        return MCPResponse(status="OK", payload=payload)
     else:
-        await ctx.error(f"CalDAV configuration error: {status['error']}")
-        return f"CalDAV configuration error: {status['error']}"
+        await log(f"CalDAV configuration error: {status['error']}", "error", logger, ctx)
+        return MCPResponse(status="ERR", error=f"CalDAV configuration error: {status['error']}")
 
 
 @mcp.tool()
@@ -655,7 +651,7 @@ async def create_quick_caldav_event(
     duration_hours: int = 1,
     date: Optional[str] = None,
     ctx: Context = None,
-) -> str:
+) -> MCPResponse:
     """
     Create a quick CalDAV event with simplified parameters.
 
@@ -668,7 +664,7 @@ async def create_quick_caldav_event(
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return "CalDAV server is not properly configured. Please check environment variables."
+        return MCPResponse(status="ERR", error="CalDAV server is not properly configured. Please check environment variables.")
 
     try:
         # Set date (default to today)
@@ -690,13 +686,12 @@ async def create_quick_caldav_event(
         return await caldav_server.create_event(event, ctx)
 
     except ValueError as e:
-        return f"Invalid parameters: {str(e)}"
+        return MCPResponse(status="ERR", error=f"Invalid parameters: {str(e)}")
     except Exception as e:
         error_msg = f"Failed to create quick CalDAV event: {str(e)}"
-        if ctx:
-            await ctx.error(error_msg)
+        await log(error_msg, "error", logger, ctx, exception=e)
         traceback.print_exc(file=sys.stderr)
-        return error_msg
+        return MCPResponse(status="ERR", error=error_msg)
 
 
 @mcp.tool()
@@ -705,7 +700,7 @@ async def get_caldav_availability(
     start_date: str,
     end_date: str,
     ctx: Context
-) -> str:
+) -> MCPResponse:
     """
     Get busy periods for a given email in the CalDAV server.
     Checks both shared calendars and org-level free/busy.
@@ -717,7 +712,7 @@ async def get_caldav_availability(
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return "CalDAV server is not properly configured."
+        return MCPResponse(status="ERR", error="CalDAV server is not properly configured.")
 
     try:
         start_dt = datetime.fromisoformat(start_date)
@@ -731,22 +726,23 @@ async def get_caldav_availability(
         )
 
         if not entries:
-            return f"No busy periods found for {email} between {start_date} and {end_date}."
+            return MCPResponse(status="OK", payload=f"No busy periods found for {email} between {start_date} and {end_date}.")
 
-        return "\n\n".join(e.model_dump_json(indent=2) for e in entries)
+        payload = "\n\n".join(e.model_dump_json(indent=2) for e in entries)
+        return MCPResponse(status="OK", payload=payload)
 
     except ValueError:
-        return "Invalid datetime format. Please use ISO format, e.g. '2025-08-20T15:00:00'."
+        return MCPResponse(status="ERR", error="Invalid datetime format. Please use ISO format, e.g. '2025-08-20T15:00:00'.")
     except Exception as e:
         error_msg = f"Failed to get availability for {email}: {e}"
-        await ctx.error(error_msg)
+        await log(error_msg, "error", logger, ctx, exception=e)
         traceback.print_exc(file=sys.stderr)
-        return error_msg
+        return MCPResponse(status="ERR", error=error_msg)
 
 
 
 @mcp.tool()
-async def test_caldav_connection(ctx: Context) -> str:
+async def test_caldav_connection(ctx: Context) -> MCPResponse:
     """
     Test the CalDAV connection and list available calendars.
 
@@ -754,48 +750,43 @@ async def test_caldav_connection(ctx: Context) -> str:
         ctx: MCP context for logging
     """
     if not caldav_configured:
-        return "CalDAV server is not properly configured. Please check environment variables."
+        return MCPResponse(status="ERR", error="CalDAV server is not properly configured. Please check environment variables.")
 
     try:
-        await ctx.info("Testing CalDAV connection...")
+        await log("Testing CalDAV connection...", "info", logger, ctx)
 
         # Test connection
         if await caldav_server.connect(ctx):
             # List calendars
             calendars_info = await caldav_server.list_calendars(ctx)
-            return f"CalDAV connection successful!\n\n{calendars_info}"
+            payload = f"CalDAV connection successful!\n\n{calendars_info.payload}"
+            return MCPResponse(status="OK", payload=payload)
         else:
-            return "Failed to connect to CalDAV server"
+            return MCPResponse(status="ERR", error="Failed to connect to CalDAV server")
 
     except Exception as e:
         error_msg = f"Failed to test CalDAV connection: {str(e)}"
-        if ctx:
-            await ctx.error(error_msg)
+        await log(error_msg, "error", logger, ctx, exception=e)
         traceback.print_exc(file=sys.stderr)
-        return error_msg
+        return MCPResponse(status="ERR", error=error_msg)
 
 
+
+
+async def main():
+    """Main function to start the CalDAV MCP server"""
+    def log_info():
+        if not caldav_configured:
+            log("WARNING: CalDAV server is not properly configured!", "warning", logger, None)
+            log("Please set the following environment variables:", "info", logger, None)
+            log("  CALDAV_URL - Your CalDAV server URL", "info", logger, None)
+            log("  CALDAV_USER - Your CalDAV username", "info", logger, None)
+            log("  CALDAV_PASSWORD - Your CalDAV password", "info", logger, None)
+            log("  MCP_HOST - MCP server host (default: localhost)", "info", logger, None)
+            log("  MCP_PORT - MCP server port (default: 8009)", "info", logger, None)
+    
+    await start_mcp_server(mcp, MCP_HOST, MCP_PORT, logger, log_info)
 
 
 if __name__ == "__main__":
-    print("=== Starting CalDAV MCP Server ===")
-    print(f"Server will run on {MCP_HOST}:{MCP_PORT}")
-
-    if not caldav_configured:
-        print("WARNING: CalDAV server is not properly configured!")
-        print("Please set the following environment variables:")
-        print("  CALDAV_URL - Your CalDAV server URL")
-        print("  CALDAV_USER - Your CalDAV username")
-        print("  CALDAV_PASSWORD - Your CalDAV password")
-        print("  MCP_HOST - MCP server host (default: localhost)")
-        print("  MCP_PORT - MCP server port (default: 8009)")
-
-    try:
-        print("Server initialized and ready to handle connections")
-        mcp.run(transport="streamable-http")
-    except Exception as e:
-        print(f"Server crashed: {str(e)}")
-        traceback.print_exc()
-        raise
-    finally:
-        print("=== CalDAV MCP Server shutting down ===")
+    asyncio.run(main())

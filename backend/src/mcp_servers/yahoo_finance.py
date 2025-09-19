@@ -8,8 +8,11 @@ import json
 import logging
 from datetime import datetime
 from mcp.server.fastmcp import FastMCP
+from utils.models import MCPResponse
+from utils.helper import log, start_mcp_server
 import os
 import time
+import asyncio
 from enum import Enum
 from typing import Optional, Any, Dict, List
 from threading import Thread, Lock
@@ -65,14 +68,17 @@ def validate_ticker(symbol: str) -> bool:
         logger.debug(f"Error validating ticker '{symbol}': {e}")
         return False
 
-def format_response(data: Any, success: bool = True, message: str = "") -> Dict[str, Any]:
+def format_response(data: Any, success: bool = True, message: str = "") -> MCPResponse:
     """Standardized response format"""
-    return {
-        'success': success,
-        'data': data,
-        'message': message,
-        'timestamp': datetime.now().isoformat()
-    }
+    if success:
+        payload = {
+            'data': data,
+            'message': message,
+            'timestamp': datetime.now().isoformat()
+        }
+        return MCPResponse(status="OK", payload=payload)
+    else:
+        return MCPResponse(status="ERR", error=message or "An error occurred")
 
 
 class TechnicalIndicators:
@@ -556,7 +562,7 @@ ti = TechnicalIndicators()
 
 
 @mcp.tool("get_stock_price")
-def get_stock_price(symbol: str) -> Dict[str, Any]:
+def get_stock_price(symbol: str) -> MCPResponse:
 
     """
     Retrieve the current stock price and related data for the given symbol, 
@@ -612,7 +618,7 @@ def get_stock_price(symbol: str) -> Dict[str, Any]:
 
 
 @mcp.tool("get_stock_info")
-def get_stock_info(ticker: str) -> Dict[str, Any]:
+def get_stock_info(ticker: str) -> MCPResponse:
 
     """
     Retrieve comprehensive company information for a given stock ticker symbol.
@@ -677,7 +683,7 @@ def get_stock_info(ticker: str) -> Dict[str, Any]:
 
 
 @mcp.tool("get_historical_stock_prices")
-def get_historical_stock_prices(ticker: str, period: str = "1mo", interval: str = "1d") -> Dict[str, Any]:
+def get_historical_stock_prices(ticker: str, period: str = "1mo", interval: str = "1d") -> MCPResponse:
 
     """
     Retrieve historical stock price data for a given ticker symbol.
@@ -738,7 +744,7 @@ def get_historical_stock_prices(ticker: str, period: str = "1mo", interval: str 
 
 
 @mcp.tool("get_financial_statement")
-def get_financial_statement(ticker: str, financial_type: str) -> Dict[str, Any]:
+def get_financial_statement(ticker: str, financial_type: str) -> MCPResponse:
 
     """
     Retrieve specified financial statements for a given stock ticker.
@@ -801,7 +807,7 @@ def get_financial_statement(ticker: str, financial_type: str) -> Dict[str, Any]:
 
 
 @mcp.tool("get_holder_info")
-async def get_holder_info(ticker: str, holder_type: str) -> Dict[str, Any]:
+async def get_holder_info(ticker: str, holder_type: str) -> MCPResponse:
     """Get holder information for a given ticker symbol."""
     try:
         company = Ticker(ticker.upper())
@@ -840,7 +846,7 @@ async def get_holder_info(ticker: str, holder_type: str) -> Dict[str, Any]:
 # Technical Analysis Tools
 @mcp.tool("get_moving_averages")
 def get_moving_averages(symbol: str, period: str = "6mo", interval: str = "1d", 
-                        windows: List[int] = [20, 50, 200]) -> Dict[str, Any]:
+                        windows: List[int] = [20, 50, 200]) -> MCPResponse:
     
     """Calculate multiple Simple Moving Averages (SMA) and Exponential Moving Averages (EMA) for a stock."""
     try:
@@ -866,7 +872,7 @@ def get_moving_averages(symbol: str, period: str = "6mo", interval: str = "1d",
 
 
 @mcp.tool("get_rsi")
-def get_rsi(symbol: str, period: str = "6mo", interval: str = "1d", window: int = 14) -> Dict[str, Any]:
+def get_rsi(symbol: str, period: str = "6mo", interval: str = "1d", window: int = 14) -> MCPResponse:
     """ Calculate the Relative Strength Index (RSI) for a given stock symbol."""
     try:
         data = ti.get_stock_data(symbol, period, interval)
@@ -889,7 +895,7 @@ def get_rsi(symbol: str, period: str = "6mo", interval: str = "1d", window: int 
 
 @mcp.tool("get_macd")
 def get_macd(symbol: str, period: str = "6mo", interval: str = "1d", 
-            fast_period: int = 12, slow_period: int = 26, signal_period: int = 9) -> Dict[str, Any]:
+            fast_period: int = 12, slow_period: int = 26, signal_period: int = 9) -> MCPResponse:
     
     """Calculate the Moving Average Convergence Divergence (MACD) indicator for a given stock symbol."""
     try:
@@ -914,7 +920,7 @@ def get_macd(symbol: str, period: str = "6mo", interval: str = "1d",
 
 @mcp.tool("get_bollinger_bands")
 def get_bollinger_bands(symbol: str, period: str = "6mo", interval: str = "1d",
-                        window: int = 20, num_std: float = 2.0) -> Dict[str, Any]:
+                        window: int = 20, num_std: float = 2.0) -> MCPResponse:
     
     """ Calculate Bollinger Bands for a given stock symbol.
 
@@ -946,7 +952,7 @@ def get_bollinger_bands(symbol: str, period: str = "6mo", interval: str = "1d",
 
     
 @mcp.tool("get_technical_summary")
-def get_technical_summary(symbol: str) -> Dict[str, Any]:
+def get_technical_summary(symbol: str) -> MCPResponse:
     """
     Generate a comprehensive technical analysis summary for a given stock symbol.
 
@@ -1070,7 +1076,7 @@ def get_technical_summary(symbol: str) -> Dict[str, Any]:
 
 # Watchlist Management
 @mcp.tool("add_to_watchlist")
-def add_to_watchlist(symbol: str) -> Dict[str, Any]:
+def add_to_watchlist(symbol: str) -> MCPResponse:
 
     """Add a stock symbol to the user's watchlist."""
     symbol = symbol.upper()
@@ -1086,7 +1092,7 @@ def add_to_watchlist(symbol: str) -> Dict[str, Any]:
     )
 
 @mcp.tool("remove_from_watchlist")
-def remove_from_watchlist(symbol: str) -> Dict[str, Any]:
+def remove_from_watchlist(symbol: str) -> MCPResponse:
 
     """Remove a stock symbol from the user's watchlist."""
     symbol = symbol.upper()
@@ -1103,7 +1109,7 @@ def remove_from_watchlist(symbol: str) -> Dict[str, Any]:
 
 
 @mcp.tool("get_watchlist")
-def get_watchlist() -> Dict[str, Any]:
+def get_watchlist() -> MCPResponse:
 
     """Retrieve all stock symbols currently in the watchlist."""
     return format_response({
@@ -1113,7 +1119,7 @@ def get_watchlist() -> Dict[str, Any]:
 
 
 @mcp.tool("get_watchlist_prices")
-def get_watchlist_prices() -> Dict[str, Any]:
+def get_watchlist_prices() -> MCPResponse:
 
     """Fetch the current prices for all stocks in the watchlist"""
     if not state.watchlist:
@@ -1142,7 +1148,7 @@ def get_watchlist_prices() -> Dict[str, Any]:
 
 # News and Recommendations
 @mcp.tool("get_yahoo_finance_news")
-def get_yahoo_finance_news(ticker: str) -> Dict[str, Any]:
+def get_yahoo_finance_news(ticker: str) -> MCPResponse:
 
     """Get the latest news articles related to a stock ticker from Yahoo Finance."""
     ticker = ticker.upper()
@@ -1175,7 +1181,7 @@ async def get_recommendations(
     ticker: str,
     recommendation_type: str,
     months_back: int = 12
-) -> Dict[str, Any]:
+) -> MCPResponse:
     
     """Get recommendations or upgrades/downgrades for a given ticker symbol"""
 
@@ -1220,7 +1226,7 @@ async def get_recommendations(
 
 
 @mcp.tool("compare_stocks")
-def compare_stocks(symbol1: str, symbol2: str) -> Dict[str, Any]:
+def compare_stocks(symbol1: str, symbol2: str) -> MCPResponse:
 
     """Compare two stocks"""
     symbol1, symbol2 = symbol1.upper(), symbol2.upper()
@@ -1256,7 +1262,7 @@ def update_watchlist_prices():
                         'updated': datetime.now().isoformat()
                     }
                 except Exception as e:
-                    logger.error(f"Error updating price for {symbol}: {e}")
+                    log(f"Error updating price for {symbol}: {e}", "error", logger, None, exception=e)
                     state.watchlist_prices[symbol] = {
                         'price': None,
                         'error': str(e),
@@ -1267,22 +1273,18 @@ def update_watchlist_prices():
             state.cleanup_cache()
             
         except Exception as e:
-            logger.error(f"Error in price update thread: {e}")
+            log(f"Error in price update thread: {e}", "error", logger, None, exception=e)
         
         time.sleep(60)  # Update every minute
 
 
 
 
+async def main():
+    """Main function to start the YFinance MCP server"""
+    await start_mcp_server(mcp, MCP_HOST, MCP_PORT, logger, None)
+
+
 if __name__ == "__main__":
-    print("=== Starting YFinance MCP Server ===")
-    print(f"Server will run on {MCP_HOST}:{MCP_PORT}")
-    try:
-        print("Server initialized and ready to handle connections")
-        mcp.run(transport="streamable-http")
-    except Exception as e:
-        print(f"Server crashed: {str(e)}", exc_info=True)
-        raise
-    finally:
-        print("=== YFinance MCP Server shutting down ===")     
+    asyncio.run(main())     
 

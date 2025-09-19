@@ -1,4 +1,6 @@
 from fastmcp import FastMCP, Context
+from utils.models import MCPResponse
+from utils.helper import log, start_mcp_server
 import httpx
 from bs4 import BeautifulSoup
 from typing import List
@@ -10,7 +12,10 @@ import asyncio
 from datetime import datetime, timedelta
 import re
 import os
+import logging
 from dotenv import load_dotenv, find_dotenv
+
+logger = logging.getLogger(__name__)
 load_dotenv(find_dotenv())
 
 
@@ -87,7 +92,7 @@ class DuckDuckGoSearcher:
                 "kl": "",
             }
 
-            await ctx.info(f"Searching DuckDuckGo for: {query}")
+            await log(f"Searching DuckDuckGo for: {query}", "info", logger, ctx)
 
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -98,7 +103,7 @@ class DuckDuckGoSearcher:
             # Parse HTML response
             soup = BeautifulSoup(response.text, "html.parser")
             if not soup:
-                await ctx.error("Failed to parse HTML response")
+                await log("Failed to parse HTML response", "error", logger, ctx)
                 return []
 
             results = []
@@ -137,17 +142,17 @@ class DuckDuckGoSearcher:
                 if len(results) >= max_results:
                     break
 
-            await ctx.info(f"Successfully found {len(results)} results")
+            await log(f"Successfully found {len(results)} results", "info", logger, ctx)
             return results
 
         except httpx.TimeoutException:
-            await ctx.error("Search request timed out")
+            await log("Search request timed out", "error", logger, ctx)
             return []
         except httpx.HTTPError as e:
-            await ctx.error(f"HTTP error occurred: {str(e)}")
+            await log(f"HTTP error occurred: {str(e)}", "error", logger, ctx, exception=e)
             return []
         except Exception as e:
-            await ctx.error(f"Unexpected error during search: {str(e)}")
+            await log(f"Unexpected error during search: {str(e)}", "error", logger, ctx, exception=e)
             traceback.print_exc(file=sys.stderr)
             return []
 
@@ -161,7 +166,7 @@ class WebContentFetcher:
         try:
             await self.rate_limiter.acquire()
 
-            await ctx.info(f"Fetching content from: {url}")
+            await log(f"Fetching content from: {url}", "info", logger, ctx)
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(
@@ -196,19 +201,17 @@ class WebContentFetcher:
             if len(text) > 8000:
                 text = text[:8000] + "... [content truncated]"
 
-            await ctx.info(
-                f"Successfully fetched and parsed content ({len(text)} characters)"
-            )
+            await log(f"Successfully fetched and parsed content ({len(text)} characters)", "info", logger, ctx)
             return text
 
         except httpx.TimeoutException:
-            await ctx.error(f"Request timed out for URL: {url}")
+            await log(f"Request timed out for URL: {url}", "error", logger, ctx)
             return "Error: The request timed out while trying to fetch the webpage."
         except httpx.HTTPError as e:
-            await ctx.error(f"HTTP error occurred while fetching {url}: {str(e)}")
+            await log(f"HTTP error occurred while fetching {url}: {str(e)}", "error", logger, ctx, exception=e)
             return f"Error: Could not access the webpage ({str(e)})"
         except Exception as e:
-            await ctx.error(f"Error fetching content from {url}: {str(e)}")
+            await log(f"Error fetching content from {url}: {str(e)}", "error", logger, ctx, exception=e)
             return f"Error: An unexpected error occurred while fetching the webpage ({str(e)})"
 
 
@@ -218,7 +221,7 @@ searcher = DuckDuckGoSearcher()
 fetcher = WebContentFetcher()
 
 @mcp.tool()
-async def wait_before_trying_again(seconds: int, ctx: Context) -> str:
+async def wait_before_trying_again(seconds: int, ctx: Context) -> MCPResponse:
     """
     If the search or the fetch fails, wait before trying again. because it's likely that the search or the fetch failed because of a bot protection.
 
@@ -227,11 +230,11 @@ async def wait_before_trying_again(seconds: int, ctx: Context) -> str:
         ctx: MCP context for logging
     """
     await asyncio.sleep(seconds)
-    return "Done"
+    return MCPResponse(status="OK", payload="Done")
 
 
 @mcp.tool()
-async def search(query: str, ctx: Context, max_results: int = 10) -> str:
+async def search(query: str, ctx: Context, max_results: int = 10) -> MCPResponse:
     """
     Search DuckDuckGo and return formatted results.
 
@@ -242,10 +245,12 @@ async def search(query: str, ctx: Context, max_results: int = 10) -> str:
     """
     try:
         results = await searcher.search(query, ctx, max_results)
-        return searcher.format_results_for_llm(results)
+        formatted_results = searcher.format_results_for_llm(results)
+        return MCPResponse(status="OK", payload=formatted_results)
     except Exception as e:
+        await log(f"An error occurred while searching: {str(e)}", "error", logger, ctx, exception=e)
         traceback.print_exc(file=sys.stderr)
-        return f"An error occurred while searching: {str(e)}"
+        return MCPResponse(status="ERR", error=f"An error occurred while searching: {str(e)}")
 
 
 # @mcp.tool()
@@ -262,14 +267,11 @@ async def search(query: str, ctx: Context, max_results: int = 10) -> str:
 
 
 
+async def main():
+    """Main function to start the DuckDuckGo MCP server"""
+    
+    await start_mcp_server(mcp, MCP_HOST, MCP_PORT, logger, None)
+
+
 if __name__ == "__main__":
-    print("=== Starting DuckDuckGo MCP Server ===")
-    print(f"Server will run on {MCP_HOST}:{MCP_PORT}")
-    try:
-        print("Server initialized and ready to handle connections")
-        mcp.run(transport="streamable-http")
-    except Exception as e:
-        print(f"Server crashed: {str(e)}", exc_info=True)
-        raise
-    finally:
-        print("=== DuckDuckGo MCP Server shutting down ===") 
+    asyncio.run(main()) 

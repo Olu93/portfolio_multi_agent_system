@@ -10,12 +10,11 @@ import logging
 import base64
 from markdownify import markdownify as md
 
-
-
 from mcp_servers.utils.models import MCPResponse
+from mcp_servers.utils.helper import log, start_mcp_server
 
 # --- logging setup ---
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 MCP_HOST = os.getenv("MCP_HOST", "localhost")
 MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
@@ -144,15 +143,11 @@ class PlaywrightBrowserManager:
                     self.page.set_default_timeout(30_000)
                     self.page.set_default_navigation_timeout(45_000)
                 msg = "Browser already running; reusing existing instance."
-                log.info(msg)
-                if ctx:
-                    await ctx.info(msg)
+                await log(msg, "info", logger, ctx)
                 return True
 
             # stale handles → full reset
-            if ctx:
-                await ctx.info("Starting Playwright…")
-            log.info("Starting Playwright…")
+            await log("Starting Playwright…", "info", logger, ctx)
             await self.close()  # ensures clean state if anything half-open
             self.playwright = await async_playwright().start()
 
@@ -172,15 +167,11 @@ class PlaywrightBrowserManager:
             self.page.set_default_navigation_timeout(45_000)
 
             msg = f"Browser launched (headless={headless}). New page created."
-            log.info(msg)
-            if ctx:
-                await ctx.info(msg)
+            await log(msg, "info", logger, ctx)
             return True
 
         except Exception as e:
-            log.exception("Failed to launch browser")
-            if ctx:
-                await ctx.error(f"Failed to launch browser: {e}")
+            await log("Failed to launch browser", "exception", logger, ctx, exception=e)
             await self.close()
             return False
 
@@ -189,32 +180,22 @@ class PlaywrightBrowserManager:
         try:
             if not self.browser or not self.browser.is_connected():
                 msg = "Browser is not running. Launch the browser first."
-                log.warning(msg)
-                if ctx:
-                    await ctx.error(msg)
+                await log(msg, "warning", logger, ctx)
                 return False
 
             if not self.page or self.page.is_closed():
-                log.info("Page missing/closed; creating a new page.")
-                if ctx:
-                    await ctx.info("Page was closed; creating a new page.")
+                await log("Page missing/closed; creating a new page.", "info", logger, ctx)
                 self.page = await self.browser.new_page()
                 self.page.set_default_timeout(30_000)
                 self.page.set_default_navigation_timeout(45_000)
 
-            if ctx:
-                await ctx.info(f"Navigating: {url}")
-            log.info(f"Navigating to {url}")
+            await log(f"Navigating to {url}", "info", logger, ctx)
             await self.page.goto(url, wait_until="networkidle")
-            if ctx:
-                await ctx.info(f"Navigation finished: {url}")
-            log.info(f"Navigation finished: {url}")
+            await log(f"Navigation finished: {url}", "info", logger, ctx)
             return True
 
         except Exception as e:
-            log.exception("Goto failed")
-            if ctx:
-                await ctx.error(f"Goto failed: {e}")
+            await log("Goto failed", "exception", logger, ctx, exception=e)
             return False
 
     async def wait_for_element(
@@ -223,46 +204,30 @@ class PlaywrightBrowserManager:
         try:
             if not self.page:
                 msg = "No page. Launch the browser first."
-                log.warning(msg)
-                if ctx:
-                    await ctx.error(msg)
+                await log(msg, "warning", logger, ctx)
                 return False
-            log.debug(f"Waiting for selector {selector} (timeout={timeout_ms}ms)")
-            if ctx:
-                await ctx.info(f"Waiting for element: {selector}")
+            await log(f"Waiting for selector {selector} (timeout={timeout_ms}ms)", "debug", logger, ctx)
             await self.page.wait_for_selector(selector, timeout=timeout_ms)
             msg = f"Element found: {selector}"
-            log.info(msg)
-            if ctx:
-                await ctx.info(msg)
+            await log(msg, "info", logger, ctx)
             return True
         except Exception as e:
-            log.exception("wait_for_selector failed")
-            if ctx:
-                await ctx.error(f"Failed waiting for {selector}: {e}")
+            await log("wait_for_selector failed", "exception", logger, ctx, exception=e)
             return False
 
     async def click_element(self, selector: str, ctx: Optional[Context]) -> bool:
         try:
             if not self.page:
                 msg = "No page. Launch the browser first."
-                log.warning(msg)
-                if ctx:
-                    await ctx.error(msg)
+                await log(msg, "warning", logger, ctx)
                 return False
-            log.debug(f"Clicking {selector}")
-            if ctx:
-                await ctx.info(f"Clicking element: {selector}")
+            await log(f"Clicking {selector}", "debug", logger, ctx)
             await self.page.click(selector)
             msg = f"Clicked: {selector}"
-            log.info(msg)
-            if ctx:
-                await ctx.info(msg)
+            await log(msg, "info", logger, ctx)
             return True
         except Exception as e:
-            log.exception("Click failed")
-            if ctx:
-                await ctx.error(f"Click failed ({selector}): {e}")
+            await log("Click failed", "exception", logger, ctx, exception=e)
             return False
 
     async def fill_form(
@@ -271,26 +236,16 @@ class PlaywrightBrowserManager:
         try:
             if not self.page:
                 msg = "No page. Launch the browser first."
-                log.warning(msg)
-                if ctx:
-                    await ctx.error(msg)
+                await log(msg, "warning", logger, ctx)
                 return False
-            log.debug(f"Filling form with {len(form_data)} fields")
-            if ctx:
-                await ctx.info(f"Filling form with {len(form_data)} fields")
+            await log(f"Filling form with {len(form_data)} fields", "debug", logger, ctx)
             for sel, val in form_data.items():
                 await self.page.fill(sel, val)
-                log.debug(f"Filled {sel}")
-                if ctx:
-                    await ctx.info(f"Filled {sel}")
-            log.info("Form filled successfully")
-            if ctx:
-                await ctx.info("Form filled successfully")
+                await log(f"Filled {sel}", "debug", logger, ctx)
+            await log("Form filled successfully", "info", logger, ctx)
             return True
         except Exception as e:
-            log.exception("Fill form failed")
-            if ctx:
-                await ctx.error(f"Failed to fill form: {e}")
+            await log("Fill form failed", "exception", logger, ctx, exception=e)
             return False
 
     async def _ensure_page_available(
@@ -299,9 +254,7 @@ class PlaywrightBrowserManager:
         """Ensure page is available, return (success, error_message)."""
         if not self.page:
             msg = "No page. Launch the browser first."
-            log.warning(msg)
-            if ctx:
-                await ctx.error(msg)
+            log(msg, "warning", logger, ctx)
             return False, msg
         return True, None
 
@@ -312,13 +265,11 @@ class PlaywrightBrowserManager:
             if not available:
                 return MCPResponse(status="ERR", error=error_msg)
             url = self.page.url
-            log.debug(f"Retrieved page URL: {url}")
+            await log(f"Retrieved page URL: {url}", "debug", logger, ctx)
             return MCPResponse(status="OK", payload=url)
         except Exception as e:
             error_msg = f"Get page URL failed: {e}"
-            log.exception(error_msg)
-            if ctx:
-                await ctx.error(error_msg)
+            await log(error_msg, "exception", logger, ctx, exception=e)
             return MCPResponse(status="ERR", error=str(e))
 
     async def get_page_title(self, ctx: Optional[Context]) -> MCPResponse:
@@ -328,13 +279,11 @@ class PlaywrightBrowserManager:
             if not available:
                 return MCPResponse(status="ERR", error=error_msg)
             title = await self.page.title()
-            log.debug(f"Retrieved page title: {title}")
+            await log(f"Retrieved page title: {title}", "debug", logger, ctx)
             return MCPResponse(status="OK", payload=title)
         except Exception as e:
             error_msg = f"Get page title failed: {e}"
-            log.exception(error_msg)
-            if ctx:
-                await ctx.error(error_msg)
+            await log(error_msg, "exception", logger, ctx, exception=e)
             return MCPResponse(status="ERR", error=str(e))
 
     async def get_page_html_raw(self, ctx: Optional[Context]) -> MCPResponse:
@@ -344,13 +293,11 @@ class PlaywrightBrowserManager:
             if not available:
                 return MCPResponse(status="ERR", error=error_msg)
             html_content = await self.page.content()
-            log.debug("Retrieved raw HTML content")
+            await log("Retrieved raw HTML content", "debug", logger, ctx)
             return MCPResponse(status="OK", payload=html_content)
         except Exception as e:
             error_msg = f"Get page HTML failed: {e}"
-            log.exception(error_msg)
-            if ctx:
-                await ctx.error(error_msg)
+            await log(error_msg, "exception", logger, ctx, exception=e)
             return MCPResponse(status="ERR", error=str(e))
 
     async def get_page_markdown(self, ctx: Optional[Context]) -> MCPResponse:
@@ -364,9 +311,7 @@ class PlaywrightBrowserManager:
             return MCPResponse(status="OK", payload=markdown_content)
         except Exception as e:
             error_msg = f"Get page markdown failed: {e}"
-            log.exception(error_msg)
-            if ctx:
-                await ctx.error(error_msg)
+            await log(error_msg, "exception", logger, ctx, exception=e)
             return MCPResponse(status="ERR", error=str(e))
 
     async def get_page_text(
@@ -379,13 +324,11 @@ class PlaywrightBrowserManager:
                 return MCPResponse(status="ERR", error=error_msg)
             html_content = await self.page.content()
             text_content = extract_text_lxml(html_content, reduce_noise)
-            log.debug("Retrieved page text content")
+            await log("Retrieved page text content", "debug", logger, ctx)
             return MCPResponse(status="OK", payload=text_content)
         except Exception as e:
             error_msg = f"Get page text failed: {e}"
-            log.exception(error_msg)
-            if ctx:
-                await ctx.error(error_msg)
+            await log(error_msg, "exception", logger, ctx, exception=e)
             return MCPResponse(status="ERR", error=str(e))
 
     async def get_page_html_cleaned(
@@ -399,13 +342,11 @@ class PlaywrightBrowserManager:
             html_content = await self.page.content()
             if reduce_noise:
                 html_content = clean_html_lxml(html_content, True)
-            log.debug("Retrieved cleaned HTML content")
+            await log("Retrieved cleaned HTML content", "debug", logger, ctx)
             return MCPResponse(status="OK", payload=html_content)
         except Exception as e:
             error_msg = f"Get cleaned page HTML failed: {e}"
-            log.exception(error_msg)
-            if ctx:
-                await ctx.error(error_msg)
+            await log(error_msg, "exception", logger, ctx, exception=e)
             return MCPResponse(status="ERR", error=str(e))
 
     async def get_page_screenshot(self, ctx: Optional[Context]) -> MCPResponse:
@@ -416,13 +357,11 @@ class PlaywrightBrowserManager:
                 return MCPResponse(status="ERR", error=error_msg)
             img_bytes = await self.page.screenshot(full_page=True)
             base64_img = base64.b64encode(img_bytes).decode("utf-8")
-            log.debug("Captured page screenshot")
+            await log("Captured page screenshot", "debug", logger, ctx)
             return MCPResponse(status="OK", payload=base64_img)
         except Exception as e:
             error_msg = f"Get page screenshot failed: {e}"
-            log.exception(error_msg)
-            if ctx:
-                await ctx.error(error_msg)
+            await log(error_msg, "exception", logger, ctx, exception=e)
             return MCPResponse(status="ERR", error=str(e))
 
     async def get_current_page_info(
@@ -431,7 +370,7 @@ class PlaywrightBrowserManager:
         """Get comprehensive page information by calling individual methods."""
         try:
             if ctx:
-                await ctx.info("Collecting page info…")
+                await log("Collecting page info…", "info", logger, ctx)
 
             # Get individual components efficiently
             url_resp = await self.get_page_url(ctx)
@@ -488,28 +427,26 @@ class PlaywrightBrowserManager:
                     timestamp=screenshot_resp.timestamp if base64_img else None,
                 ),
             )
-            log.debug(
-                f"Page info collected: title={title_resp.payload}, url={url_resp.payload}"
+            await log(
+                f"Page info collected: title={title_resp.payload}, url={url_resp.payload}", "debug", logger, ctx
             )
             if ctx:
-                await ctx.info("Page info collected.")
+                await log("Page info collected.", "info", logger, ctx)
             return MCPResponse(status="OK", payload=info.__dict__)
         except Exception as e:
             error_msg = f"Get page info failed: {e}"
-            log.exception(error_msg)
-            if ctx:
-                await ctx.error(error_msg)
+            await log(error_msg, "exception", logger, ctx, exception=e)
             return MCPResponse(status="ERR", error=str(e))
 
     async def close(self):
         try:
-            log.info("Shutting down Playwright…")
+            log("Shutting down Playwright…", "info", logger, None)
             if self.browser:
                 await self.browser.close()
             if self.playwright:
                 await self.playwright.stop()
         except Exception:
-            log.exception("Error during close()")
+            log("Error during close()", "exception", logger, None)
         finally:
             self.browser = None
             self.page = None
@@ -520,7 +457,7 @@ class PlaywrightBrowserManager:
             return
 
         def _on_disc(*_):
-            log.warning("Browser disconnected; clearing handles.")
+            log("Browser disconnected; clearing handles.", "warning", logger, None)
             # ctx is optional here; don't await in event
             try:
                 # best-effort notify (non-blocking)
@@ -952,9 +889,16 @@ async def get_page_markdown(ctx: Context = None) -> MCPResponse:
     return await manager.get_page_markdown(ctx)
 
 
-if __name__ == "__main__":
-    print("Playwright MCP on", f"{MCP_HOST}:{MCP_PORT}")
+async def main():
+    """Main function to start the Playwright MCP server"""
+    def log_info():
+        log(f"Playwright MCP on {MCP_HOST}:{MCP_PORT}", "info", logger, None)
+    
     try:
-        mcp.run(transport="streamable-http")
+        await start_mcp_server(mcp, logger, log_info)
     finally:
-        asyncio.run(manager.close())
+        await manager.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -1,4 +1,6 @@
 from fastmcp import FastMCP, Context
+from utils.models import MCPResponse
+from utils.helper import log, start_mcp_server
 import os
 import asyncio
 import traceback
@@ -13,7 +15,6 @@ from email.mime.base import MIMEBase
 from email import encoders
 from dotenv import load_dotenv, find_dotenv
 import aiosmtplib
-from utils.helper import log
 import logging
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ class SMTPServer:
                 "SMTP_USERNAME and SMTP_PASSWORD environment variables must be set"
             )
     
-    async def send_email(self, email_msg: EmailMessage, ctx: Context) -> str:
+    async def send_email(self, email_msg: EmailMessage, ctx: Context) -> MCPResponse:
         """Send an email with optional attachments"""
         try:
             await ctx.info(f"Preparing to send email to: {', '.join(email_msg.to_emails)}")
@@ -119,14 +120,14 @@ class SMTPServer:
                     recipients=recipients
                 )
             
-            await ctx.info("Email sent successfully!")
-            return f"Email sent successfully to {', '.join(email_msg.to_emails)}"
+            await log("Email sent successfully!", "info", logger, ctx)
+            return MCPResponse(status="OK", payload=f"Email sent successfully to {', '.join(email_msg.to_emails)}")
             
         except Exception as e:
             error_msg = f"Failed to send email: {str(e)}"
-            await ctx.error(error_msg)
+            await log(error_msg, "error", logger, ctx, exception=e)
             traceback.print_exc(file=sys.stderr)
-            return error_msg
+            return MCPResponse(status="ERR", error=error_msg)
     
     async def _add_attachment(self, msg: MIMEMultipart, attachment: EmailAttachment, ctx: Context):
         """Add an attachment to the email message"""
@@ -208,7 +209,7 @@ async def _send_email(
     bcc_emails: Optional[List[str]] = None,
     attachments: Optional[List[Dict[str, str]]] = None,
     ctx: Context = None
-) -> str:
+) -> MCPResponse:
     """
     Send an email with optional attachments.
     
@@ -224,7 +225,7 @@ async def _send_email(
         ctx: MCP context for logging
     """
     if not smtp_configured:
-        return "SMTP server is not properly configured. Please check environment variables."
+        return MCPResponse(status="ERR", error="SMTP server is not properly configured. Please check environment variables.")
     
     try:
         # Convert attachment dictionaries to EmailAttachment objects
@@ -255,10 +256,9 @@ async def _send_email(
         
     except Exception as e:
         error_msg = f"Failed to send email: {str(e)}"
-        if ctx:
-            await ctx.error(error_msg)
+        await log(error_msg, "error", logger, ctx, exception=e)
         traceback.print_exc(file=sys.stderr)
-        return error_msg
+        return MCPResponse(status="ERR", error=error_msg)
 
 
 # @mcp.tool()
@@ -287,7 +287,7 @@ async def send_email(
     bcc_emails: Optional[List[str]] = None,
     attachments: Optional[List[Dict[str, str]]] = None,
     ctx: Context = None
-) -> str:
+) -> MCPResponse:
     """
     Send an email with optional attachments.
     
@@ -321,7 +321,7 @@ async def send_simple_email(
     subject: str,
     body: str,
     ctx: Context = None
-) -> str:
+) -> MCPResponse:
     """
     Send a simple email to a single recipient.
     
@@ -347,7 +347,7 @@ async def send_html_email(
     # from_email: Optional[str] = None,
     attachments: Optional[List[Dict[str, str]]] = None,
     ctx: Context = None
-) -> str:
+) -> MCPResponse:
     """
     Send an HTML email with optional attachments.
     
@@ -370,7 +370,7 @@ async def send_html_email(
 
 
 @mcp.tool()
-async def get_smtp_status(ctx: Context) -> str:
+async def get_smtp_status(ctx: Context) -> MCPResponse:
     """
     Get the current SMTP server configuration status.
     
@@ -378,26 +378,25 @@ async def get_smtp_status(ctx: Context) -> str:
         ctx: MCP context for logging
     """
     if not smtp_configured:
-        return "SMTP server is not configured. Please check environment variables."
+        return MCPResponse(status="ERR", error="SMTP server is not configured. Please check environment variables.")
     
     status = smtp_server.test_connection()
     
     if status["status"] == "configured":
-        await ctx.info("SMTP server is properly configured")
-        return f"SMTP server configured successfully:\n" \
-               f"Host: {status['host']}\n" \
-               f"Port: {status['port']}\n" \
-               f"Username: {status['username']}\n" \
-               f"Use TLS: {status['use_tls']}\n" \
-               f"Use SSL: {status['use_ssl']}\n" \
-               f"Default From: {status['from_email']}"
+        await log("SMTP server is properly configured", "info", logger, ctx)
+        payload = (f"SMTP server configured successfully:\n"
+                   f"Host: {status['host']}\n"
+                   f"Port: {status['port']}\n"
+                   f"Username: {status['username']}\n"
+                   f"Default From: {status['from_email']}")
+        return MCPResponse(status="OK", payload=payload)
     else:
-        await ctx.error(f"SMTP configuration error: {status['error']}")
-        return f"SMTP configuration error: {status['error']}"
+        await log(f"SMTP configuration error: {status['error']}", "error", logger, ctx)
+        return MCPResponse(status="ERR", error=f"SMTP configuration error: {status['error']}")
 
 
 @mcp.tool()
-async def validate_email_address(email: str, ctx: Context) -> str:
+async def validate_email_address(email: str, ctx: Context) -> MCPResponse:
     """
     Basic email address validation.
     
@@ -411,22 +410,21 @@ async def validate_email_address(email: str, ctx: Context) -> str:
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     
     if re.match(pattern, email):
-        await ctx.info(f"Email address '{email}' is valid")
-        return f"Email address '{email}' is valid"
+        await log(f"Email address '{email}' is valid", "info", logger, ctx)
+        return MCPResponse(status="OK", payload=f"Email address '{email}' is valid")
     else:
-        await ctx.warning(f"Email address '{email}' is invalid")
-        return f"Email address '{email}' is invalid"
+        await log(f"Email address '{email}' is invalid", "warning", logger, ctx)
+        return MCPResponse(status="ERR", error=f"Email address '{email}' is invalid")
+
+
+async def main():
+    """Main function to start the SMTP MCP server"""
+    def log_info():
+        if not smtp_configured:
+            log("WARNING: SMTP server is not properly configured!", "warning", logger, None)
+    
+    await start_mcp_server(mcp, MCP_HOST, MCP_PORT, logger, log_info)
 
 
 if __name__ == "__main__":
-    
-    if not smtp_configured:
-        log("WARNING: SMTP server is not properly configured!", "warning", logger, None)
-    
-    try:
-        mcp.run(transport="streamable-http")
-    except Exception as e:
-        log(f"Server crashed: {str(e)}", "exception", logger, None, exception=e)
-        raise
-    finally:
-        log("=== SMTP MCP Server shutting down ===", "info", logger, None)
+    asyncio.run(main())

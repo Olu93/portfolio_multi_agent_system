@@ -1,12 +1,13 @@
 
-from typing import Literal, Union, Optional
+from typing import Literal, Union, Optional, Callable
 import logging
 import pprint
-from fastmcp import Context
+import asyncio
+from fastmcp import Context, FastMCP
 
 LogLevel = Literal["info", "debug", "warning", "error", "exception"]
 
-def log(
+async def log(
     message: str, 
     level: LogLevel = "info", 
     logger: Optional[logging.Logger] = None, 
@@ -55,18 +56,50 @@ def log(
     # Log to MCP context if provided
     if ctx is not None:
         if level == "info":
-            ctx.info(message)
+            await ctx.info(message)
         elif level == "debug":
-            ctx.debug(message)
+            await ctx.debug(message)
         elif level == "warning":
-            ctx.warning(message)
+            await ctx.warning(message)
         elif level == "error":
             if exception:
-                ctx.error(f"{message}: {str(exception)}")
+                await ctx.error(f"{message}: {str(exception)}")
             else:
-                ctx.error(message)
+                await ctx.error(message)
         elif level == "exception":
             if exception:
-                ctx.error(f"{message}: {str(exception)}")
+                await ctx.error(f"{message}: {str(exception)}")
             else:
-                ctx.error(message)
+                await ctx.error(message)
+
+
+async def start_mcp_server(
+    mcp: FastMCP,
+    host: str,
+    port: int,
+    logger: Optional[logging.Logger] = None,
+    log_info_fun: Optional[Callable[[], None]] = None
+) -> None:
+    """
+    Standardized MCP server startup function.
+    
+    Args:
+        mcp: The FastMCP server instance
+        logger: Optional logger instance
+        log_info_fun: Optional function to call before starting the server
+    """
+    await log(f"Server will run on {host}:{port}", "info", logger, None)
+    try:
+        await log(f"=== Starting {mcp.name} MCP Server ===", "info", logger, None)
+        
+        if log_info_fun:
+            log_info_fun()
+        
+        await log("Server initialized and ready to handle connections", "info", logger, None)
+        mcp.run(transport="streamable-http", host=host, port=port)
+        
+    except Exception as e:
+        await log(f"Server crashed: {str(e)}", "exception", logger, None, exception=e)
+        raise
+    finally:
+        await log(f"=== {mcp.name} MCP Server shutting down ===", "info", logger, None)

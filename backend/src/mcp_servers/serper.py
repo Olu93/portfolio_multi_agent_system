@@ -1,4 +1,6 @@
 from fastmcp import FastMCP, Context
+from utils.models import MCPResponse
+from utils.helper import log, start_mcp_server
 from langchain_community.utilities import GoogleSerperAPIWrapper
 from typing import List, Optional
 from dataclasses import dataclass
@@ -7,7 +9,10 @@ import traceback
 import asyncio
 from datetime import datetime, timedelta
 import os
+import logging
 from dotenv import load_dotenv, find_dotenv
+
+logger = logging.getLogger(__name__)
 load_dotenv(find_dotenv())
 
 
@@ -105,7 +110,7 @@ class GoogleSerperSearcher:
             # Apply rate limiting
             await self.rate_limiter.acquire()
 
-            await ctx.info(f"Searching Google Serper for: {query} (type: {search_type})")
+            await log(f"Searching Google Serper for: {query} (type: {search_type})", "info", logger, ctx)
 
             # Configure search parameters
             search_params = {
@@ -171,11 +176,11 @@ class GoogleSerperSearcher:
                         source=item.get("source", "")
                     ))
 
-            await ctx.info(f"Successfully found {len(results)} results")
+            await log(f"Successfully found {len(results)} results", "info", logger, ctx)
             return results
 
         except Exception as e:
-            await ctx.error(f"Error during search: {str(e)}")
+            await log(f"Error during search: {str(e)}", "error", logger, ctx, exception=e)
             traceback.print_exc(file=sys.stderr)
             return []
 
@@ -193,7 +198,7 @@ async def search(
     ctx: Context, 
     max_results: int = 10,
     search_type: str = "search"
-) -> str:
+) -> MCPResponse:
     """
     Search the web using Google Serper API
     
@@ -206,7 +211,8 @@ async def search(
         Formatted search results as a string
     """
     results = await searcher.search(query, ctx, max_results, search_type)
-    return searcher.format_results_for_llm(results)
+    formatted_results = searcher.format_results_for_llm(results)
+    return MCPResponse(status="OK", payload=formatted_results)
 
 
 @mcp.tool()
@@ -215,7 +221,7 @@ async def search_news(
     ctx: Context, 
     max_results: int = 10,
     time_filter: str = "qdr:d"
-) -> str:
+) -> MCPResponse:
     """
     Search for news using Google Serper API
     
@@ -228,7 +234,8 @@ async def search_news(
         Formatted news search results as a string
     """
     results = await searcher.search(query, ctx, max_results, "news", time_filter)
-    return searcher.format_results_for_llm(results)
+    formatted_results = searcher.format_results_for_llm(results)
+    return MCPResponse(status="OK", payload=formatted_results)
 
 
 @mcp.tool()
@@ -236,7 +243,7 @@ async def search_places(
     query: str, 
     ctx: Context, 
     max_results: int = 10
-) -> str:
+) -> MCPResponse:
     """
     Search for places using Google Serper API
     
@@ -248,7 +255,8 @@ async def search_places(
         Formatted places search results as a string
     """
     results = await searcher.search(query, ctx, max_results, "places")
-    return searcher.format_results_for_llm(results)
+    formatted_results = searcher.format_results_for_llm(results)
+    return MCPResponse(status="OK", payload=formatted_results)
 
 
 @mcp.tool()
@@ -256,7 +264,7 @@ async def search_images(
     query: str, 
     ctx: Context, 
     max_results: int = 10
-) -> str:
+) -> MCPResponse:
     """
     Search for images using Google Serper API
     
@@ -268,11 +276,12 @@ async def search_images(
         Formatted image search results as a string
     """
     results = await searcher.search(query, ctx, max_results, "images")
-    return searcher.format_results_for_llm(results)
+    formatted_results = searcher.format_results_for_llm(results)
+    return MCPResponse(status="OK", payload=formatted_results)
 
 
 @mcp.tool()
-async def wait_before_trying_again(seconds: int, ctx: Context) -> str:
+async def wait_before_trying_again(seconds: int, ctx: Context) -> MCPResponse:
     """
     Wait for a specified number of seconds before trying again
     
@@ -282,19 +291,16 @@ async def wait_before_trying_again(seconds: int, ctx: Context) -> str:
     Returns:
         Confirmation message
     """
-    await ctx.info(f"Waiting for {seconds} seconds...")
+    await log(f"Waiting for {seconds} seconds...", "info", logger, ctx)
     await asyncio.sleep(seconds)
-    return f"Waited for {seconds} seconds. You can now try your search again."
+    return MCPResponse(status="OK", payload=f"Waited for {seconds} seconds. You can now try your search again.")
+
+
+async def main():
+    """Main function to start the Google Serper MCP server"""
+
+    await start_mcp_server(mcp, MCP_HOST, MCP_PORT, logger, None)
 
 
 if __name__ == "__main__":
-    print("=== Starting Google Serper MCP Server ===")
-    print(f"Server will run on {MCP_HOST}:{MCP_PORT}")
-    try:
-        print("Server initialized and ready to handle connections")
-        mcp.run(transport="streamable-http")
-    except Exception as e:
-        print(f"Server crashed: {str(e)}", exc_info=True)
-        raise
-    finally:
-        print("=== Google Serper MCP Server shutting down ===")     
+    asyncio.run(main())     
