@@ -1,6 +1,22 @@
 services:
+
+  postgres-mcp:
+    image: crystaldba/postgres-mcp
+    container_name: ohcm_postgres_mcp
+    depends_on:
+      - db
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      - DATABASE_URI=postgres://app:app@ohcm_postgres_db:5432/app
+    volumes:
+      - ./backend/src/mcp_servers:/app/mcp_servers
+    working_dir: /app/mcp_servers
+    command: ["--access-mode=unrestricted", "--transport=sse"]
+
   db:
     image: postgres:17
+    container_name: ohcm_postgres_db
     environment:
       POSTGRES_DB: app
       POSTGRES_USER: app

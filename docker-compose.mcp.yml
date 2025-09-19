@@ -150,19 +150,7 @@ services:
       - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
 
-  postgres-mcp:
-    image: crystaldba/postgres-mcp
-    container_name: ohcm_postgres_mcp
-    depends_on:
-      - db
-    environment:
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-      - DATABASE_URI=postgres://app:app@db:5432/app
-    volumes:
-      - ./backend/src/mcp_servers:/app/mcp_servers
-    working_dir: /app/mcp_servers
-    command: ["--access-mode=unrestricted", "--transport=sse"]
+
 
 
 
@@ -177,7 +165,7 @@ services:
       - PLAYWRIGHT_SERVER_PORT=3001
       - APP_CMD=python playwright_extension.py
     ports:
-      - "3001:3001"   # expose server API if you want
+      - "20011:5678" 
     volumes:
       - ./screenshots:/home/pwuser/screenshots
       - ./backend/src/mcp_servers:/app/mcp_servers

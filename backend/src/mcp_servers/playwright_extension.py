@@ -1,7 +1,7 @@
 import os, json, asyncio
 from dataclasses import dataclass
 from typing import Literal, Optional, Dict
-from mcp.server.fastmcp import FastMCP, Context
+from fastmcp import FastMCP, Context
 from playwright.async_api import async_playwright, Browser, Page
 from lxml import html
 from lxml_html_clean import Cleaner
@@ -250,7 +250,7 @@ class PlaywrightBrowserManager:
         """Ensure page is available, return (success, error_message)."""
         if not self.page:
             msg = "No page. Launch the browser first."
-            log(msg, "warning", logger, ctx)
+            await log(msg, "warning", logger, ctx)
             return False, msg
         return True, None
 
@@ -436,13 +436,13 @@ class PlaywrightBrowserManager:
 
     async def close(self):
         try:
-            log("Shutting down Playwright…", "info", logger, None)
+            await log("Shutting down Playwright…", "info", logger, None)
             if self.browser:
                 await self.browser.close()
             if self.playwright:
                 await self.playwright.stop()
         except Exception:
-            log("Error during close()", "exception", logger, None)
+            await log("Error during close()", "exception", logger, None)
         finally:
             self.browser = None
             self.page = None
@@ -453,7 +453,7 @@ class PlaywrightBrowserManager:
             return
 
         def _on_disc(*_):
-            log("Browser disconnected; clearing handles.", "warning", logger, None)
+            logger.warning("Browser disconnected; clearing handles.")
             # ctx is optional here; don't await in event
             try:
                 # best-effort notify (non-blocking)
@@ -887,11 +887,10 @@ async def get_page_markdown(ctx: Context = None) -> MCPResponse:
 
 async def main():
     """Main function to start the Playwright MCP server"""
-    def log_info():
-        log(f"Playwright MCP on {MCP_HOST}:{MCP_PORT}", "info", logger, None)
+
     
     try:
-        await start_mcp_server(mcp, logger, log_info)
+        await start_mcp_server(mcp, MCP_HOST, MCP_PORT, logger, None)
     finally:
         await manager.close()
 
