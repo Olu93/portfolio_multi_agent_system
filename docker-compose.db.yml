@@ -35,6 +35,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.goose
+    container_name: ohcm_migrator
     depends_on:
       db:
         condition: service_healthy

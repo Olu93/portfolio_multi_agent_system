@@ -43,10 +43,7 @@ A2A_AGENT_URL = os.getenv("A2A_AGENT_URL", "http://ohcm_supervisor_agent:10020")
 async def lifespan(app: FastAPI):
     """Start the cleanup task when the server starts."""
     cleanup_task = asyncio.create_task(cleanup_stale_agents())
-    logger.info("Starting A2A Chat Service")
-    logger.info(f"Serving agent at: {A2A_AGENT_URL}")
-    res = requests.get(f"{A2A_AGENT_URL}/health")
-    logger.info(f"Health check response: {res.json()}")    
+    logger.info("Starting A2A Chat Service") 
     yield
     logger.info("Shutting down A2A Chat Service")
     cleanup_task.cancel()

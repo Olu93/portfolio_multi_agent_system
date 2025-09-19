@@ -1,3 +1,4 @@
+import os
 from fastmcp import FastMCP, Context
 from mcp_servers.utils.models import MCPResponse
 from mcp_servers.utils.helper import log, start_mcp_server
@@ -13,6 +14,7 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
+SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 
 @dataclass
 class SearchResult:
@@ -48,7 +50,7 @@ class RateLimiter:
 class GoogleSerperSearcher:
     def __init__(self):
         self.rate_limiter = RateLimiter()
-        self.serper_api_key = os.getenv("SERPER_API_KEY")
+        self.serper_api_key = SERPER_API_KEY
         
         if not self.serper_api_key:
             raise ValueError(
