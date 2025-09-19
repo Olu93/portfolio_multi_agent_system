@@ -96,7 +96,7 @@ async def start_mcp_server(
             log_info_fun()
         
         await log("Server initialized and ready to handle connections", "info", logger, None)
-        mcp.run(transport="streamable-http", host=host, port=port)
+        await mcp.run_async(transport="streamable-http", host=host, port=port)
         
     except Exception as e:
         await log(f"Server crashed: {str(e)}", "exception", logger, None, exception=e)

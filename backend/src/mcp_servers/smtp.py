@@ -1,6 +1,6 @@
 from fastmcp import FastMCP, Context
-from utils.models import MCPResponse
-from utils.helper import log, start_mcp_server
+from mcp_servers.utils.models import MCPResponse
+from mcp_servers.utils.helper import log, start_mcp_server
 import os
 import asyncio
 import traceback
@@ -195,7 +195,7 @@ try:
 except Exception as e:
     smtp_server = None
     smtp_configured = False
-    log(f"Warning: SMTP server not configured: {e}", "warning", logger, None)
+    logger.warning(f"Warning: SMTP server not configured: {e}")
 
 
 
@@ -421,7 +421,7 @@ async def main():
     """Main function to start the SMTP MCP server"""
     def log_info():
         if not smtp_configured:
-            log("WARNING: SMTP server is not properly configured!", "warning", logger, None)
+            logger.warning("WARNING: SMTP server is not properly configured!")
     
     await start_mcp_server(mcp, MCP_HOST, MCP_PORT, logger, log_info)
 
