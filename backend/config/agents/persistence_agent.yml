@@ -1,7 +1,7 @@
 name: "Persistence-Agent"
 description: "A agent that can use multiple persistence tools such as Postgres and File Directory to store and retrieve data"
 agent_url: "http://ohcm_persistence_agent:10020"
-tools:
+skillset:
   - name: "Postgres"
     description: "An agent that can store and retrieve data using Postgres"
     tags: ["search", "web search", "information gathering", "postgres"]

@@ -1,7 +1,7 @@
 name: "Finance-Agent"
 description: "An agent that can gather finance information from the web"
 agent_url: "http://ohcm_finance_agent:10020"
-tools:
+skillset:
   - name: "Yahoo Finance"
     description: "An agent that can gather finance information from the web using Yahoo Finance"
     tags: ["finance", "yahoo", "finance information"]

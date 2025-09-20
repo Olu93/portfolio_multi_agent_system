@@ -4,7 +4,7 @@ import logging
 import re
 from abc import abstractmethod
 from datetime import datetime, timezone
-from typing import Any, AsyncIterable, AsyncIterator, Optional
+from typing import Any, AsyncIterable, AsyncIterator, Optional, TypedDict
 from uuid import uuid4
 
 import httpx
@@ -302,11 +302,19 @@ class A2ASubAgentClient:
         )
         return t, tool_config
 
+class AgentConfig(TypedDict):
+    name: str
+    url: str
+    agent_config: dict
+    sub_task_id: Optional[str] = None
+    prompt: Optional[str] = None
+    skillset: Optional[list[StructuredTool]] = None
+    http_handler: Optional[Starlette] = None
 
 class BaseAgent:
     graph: CompiledStateGraph = None
     model: BaseChatModel = None
-    agent_config: dict = None
+    agent_config: AgentConfig = None
     name: str = None
     url: str = None
     agent_card: AgentCard = None
@@ -315,7 +323,7 @@ class BaseAgent:
     http_handler: Starlette = None
     SUPPORTED_CONTENT_TYPES = ["text", "text/plain", "text/event-stream", "application/json"]
 
-    def __init__(self, name: str, url: str, agent_config: dict):
+    def __init__(self, name: str, url: str, agent_config: AgentConfig):
         self.name = name
         self.url = url
         self.agent_config = agent_config
@@ -351,7 +359,7 @@ class BaseAgent:
                 tags=tool.get("tags", []),
                 examples=tool.get("examples", []),
             )
-            for tool in self.agent_config.get("tools", [])
+            for tool in self.agent_config.get("skillset", [])
         ]
         description = self.agent_config.get("description", "")
 

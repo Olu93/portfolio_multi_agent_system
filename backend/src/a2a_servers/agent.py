@@ -117,17 +117,25 @@ def _connect_to_tools(tool_config_dict: dict):
         logger.info(f"Checking if tool {t} is reachable at {v}")
         try:
             r = requests.head(v["url"])
-            if r.status_code != 200:
-                logger.exception(f"Tool {t} is not reachable at {v['url']}")
+            if r.status_code != 405 and r.status_code != 200:
+                logger.exception(f"Tool {t} is not reachable at {v['url']} - Status Code: {r.status_code}")
                 unreachable_tools.append((t, v["url"]))
             else:
-                logger.info(f"Tool {t} is reachable at {v['url']}")
+                logger.info(f"Tool {t} is reachable at {v['url']} - Status Code: {r.status_code}")
                 reachable_tools.append((t, v["url"]))
         except requests.exceptions.ConnectionError as e:
             logger.error(f"Error checking if tool '{t}' is reachable at {v} - Error: {e}")
             unreachable_tools.append((t, v["url"]))
 
     return reachable_tools, unreachable_tools
+
+def _retry_call(delay: int, tool_config_dict: dict, reachable_tools: list):
+    logger.warning(f"Retry after {delay} seconds")
+    time.sleep(delay)
+    remainder_tools = {t: v for t, v in tool_config_dict.items() if (t, v["url"]) not in reachable_tools}
+    reachable_tools, unreachable_tools = _connect_to_tools(remainder_tools)    
+    return reachable_tools, unreachable_tools
+
 
 class ResponseFormat(BaseModel):
     """Respond to the user in this format."""
@@ -155,7 +163,7 @@ class SubAgent(BaseAgent):
     # @retry(retry_policy)
     async def build_tools(self) -> list[StructuredTool]:
         logger.info(f"Building tools for agent {self.name}")
-        tool_config = self.agent_config.get("tools", [])
+        tool_config = self.agent_config.get("skillset", [])
         tool_config_dict = {tool["name"]: tool["mcp_server"] for tool in tool_config}
         for tool in tool_config_dict:
             if not ("/mcp" in tool_config_dict[tool]["url"] or "/sse" in tool_config_dict[tool]["url"]):
@@ -165,30 +173,29 @@ class SubAgent(BaseAgent):
         # BLOG: Assumes that all the MCP services are reachable and running. If not, the agent will fail to build. Explain how you could handle this differently
         logger.info(f"Found {len(tool_config_dict)} tools to build")
         reachable_tools, unreachable_tools = [], []
-        reachable_tools, unreachable_tools = _connect_to_tools(tool_config_dict)
-        if len(unreachable_tools):
-            delay = 3
-            logger.warning(f"Retry after {delay} seconds")
-            time.sleep(delay)
-            reaminder_tools = {t: v for t, v in tool_config_dict.items() if (t, v["url"]) not in reachable_tools}
-            reachable_tools, unreachable_tools = _connect_to_tools(reaminder_tools)
-            if len(unreachable_tools):
-                delay = 8
-                logger.warning(f"Retry after {delay} seconds")
-                time.sleep(delay)
-                reaminder_tools = {t: v for t, v in tool_config_dict.items() if (t, v["url"]) not in reachable_tools}
-                reachable_tools, unreachable_tools = _connect_to_tools(reaminder_tools)
-                if len(unreachable_tools):
-                    delay = 15
-                    logger.warning(f"Retry after {delay} seconds")
-                    time.sleep(delay)
-                    reaminder_tools = {t: v for t, v in tool_config_dict.items() if (t, v["url"]) not in reachable_tools}
-                    reachable_tools, unreachable_tools = _connect_to_tools(reaminder_tools)
+        other_tools, unreachable_tools = _connect_to_tools(tool_config_dict)
+        reachable_tools.extend(other_tools)
+        if len(unreachable_tools) > 0:
+            other_tools, unreachable_tools = _retry_call(3, tool_config_dict, unreachable_tools)
+            reachable_tools.extend(other_tools)
+        if len(unreachable_tools) > 0:
+            other_tools, unreachable_tools = _retry_call(5, tool_config_dict, unreachable_tools)
+            reachable_tools.extend(other_tools)
+        if len(unreachable_tools) > 0:
+            other_tools, unreachable_tools = _retry_call(8, tool_config_dict, unreachable_tools)    
+            reachable_tools.extend(other_tools)
+        if len(unreachable_tools) > 0:
+            other_tools, unreachable_tools = _retry_call(13, tool_config_dict, unreachable_tools)
+            reachable_tools.extend(other_tools)
+        if len(unreachable_tools) > 0:
+            other_tools, unreachable_tools = _retry_call(21, tool_config_dict, unreachable_tools)
+            reachable_tools.extend(other_tools)
+
         logger.info(f"Found {len(reachable_tools)} reachable tools and {len(unreachable_tools)} unreachable tools")
         if len(unreachable_tools) > 0:
             logger.warning(f"Unreachable tools: {unreachable_tools}")
         client = MultiServerMCPClient({t: v for t, v in tool_config_dict.items() if (t, v["url"]) in reachable_tools})
-        tools = await client.get_tools()        
+        tools = await client.get_tools()
         logger.info(f"Received {len(tools)} tools for agent {self.name}")
         return tools
 

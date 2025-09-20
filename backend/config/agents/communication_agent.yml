@@ -1,7 +1,7 @@
 name: "Communication-Agent"
 description: "An agent that can use multiple communication tools such as email, slack and others"
 agent_url: "http://ohcm_communication_agent:10020"
-tools:
+skillset:
   - name: "Email"
     description: "Tools allow user to send emails using SMTP protocol"
     tags: ["email", "mail", "smtp"]
