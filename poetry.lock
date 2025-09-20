@@ -151,6 +151,21 @@ yarl = ">=1.17.0,<2.0"
 speedups = ["Brotli", "aiodns (>=3.3.0)", "brotlicffi"]
 
 [[package]]
+name = "aioretry"
+version = "6.3.1"
+description = "Asyncio retry utility for Python 3.7+"
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "aioretry-6.3.1-py3-none-any.whl", hash = "sha256:abaac34cf7a300bfd574a01cf5d3a83f41000ac402a0cda0627a1537197547b0"},
+    {file = "aioretry-6.3.1.tar.gz", hash = "sha256:94e2e140dae0babedcffb9bd50e75583756f33731d4ea463be2ed6c9e44f21f1"},
+]
+
+[package.extras]
+dev = ["build", "codecov", "coverage", "mypy", "pytest", "pytest-asyncio", "pytest-cov", "ruff", "twine"]
+
+[[package]]
 name = "aiosignal"
 version = "1.4.0"
 description = "aiosignal: a list of registered asynchronous callbacks"
@@ -6410,4 +6425,4 @@ cffi = ["cffi (>=1.17,<2.0)", "cffi (>=2.0.0b)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "afc3b9f05bdb3116988386a6042e41c6522c7d4f9fa09a3d1cf5a6d138aabd97"
+content-hash = "fe3c8cf33d9c08a60bee23a9cceb6fc147a7c9aaf17a4f637b592bec93c37120"
