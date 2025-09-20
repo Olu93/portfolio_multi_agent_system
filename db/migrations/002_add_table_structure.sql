@@ -1,9 +1,9 @@
 -- +goose Up
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-CREATE TYPE content_kind AS ENUM ('html','text','markdown','screenshot');
+CREATE TYPE web_content.content_kind AS ENUM ('html','text','markdown','screenshot');
 
-CREATE TABLE pages (
+CREATE TABLE web_content.pages (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   status       TEXT NOT NULL CHECK (status IN ('OK','ERROR','PENDING')),
   url          TEXT NOT NULL,
@@ -13,10 +13,10 @@ CREATE TABLE pages (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE page_contents (
+CREATE TABLE web_content.page_contents (
   id            BIGSERIAL PRIMARY KEY,
-  page_id       UUID NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
-  kind          content_kind NOT NULL,
+  page_id       UUID NOT NULL REFERENCES web_content.pages(id) ON DELETE CASCADE,
+  kind          web_content.content_kind NOT NULL,
   content_type  TEXT NOT NULL,
   content_text  TEXT,
   content_bytes BYTEA,
@@ -34,15 +34,16 @@ CREATE TABLE page_contents (
   )
 );
 
-CREATE INDEX IF NOT EXISTS idx_pages_url ON pages (url);
+CREATE INDEX IF NOT EXISTS idx_pages_url ON web_content.pages (url);
 CREATE INDEX IF NOT EXISTS idx_page_contents_fts
-  ON page_contents USING GIN (to_tsvector('simple', coalesce(content_text, '')));
-CREATE INDEX IF NOT EXISTS idx_page_contents_page_kind ON page_contents (page_id, kind);
+  ON web_content.page_contents USING GIN (to_tsvector('simple', coalesce(content_text, '')));
+CREATE INDEX IF NOT EXISTS idx_page_contents_page_kind
+  ON web_content.page_contents (page_id, kind);
 
 -- +goose Down
-DROP INDEX IF EXISTS idx_page_contents_page_kind;
-DROP INDEX IF EXISTS idx_page_contents_fts;
-DROP INDEX IF EXISTS idx_pages_url;
-DROP TABLE IF EXISTS page_contents;
-DROP TABLE IF EXISTS pages;
-DROP TYPE IF EXISTS content_kind;
+DROP INDEX IF EXISTS web_content.idx_page_contents_page_kind;
+DROP INDEX IF EXISTS web_content.idx_page_contents_fts;
+DROP INDEX IF EXISTS web_content.idx_pages_url;
+DROP TABLE IF EXISTS web_content.page_contents;
+DROP TABLE IF EXISTS web_content.pages;
+DROP TYPE IF EXISTS web_content.content_kind;
