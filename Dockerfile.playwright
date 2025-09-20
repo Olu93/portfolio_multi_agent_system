@@ -42,15 +42,18 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Copy app + its venv from builder
 COPY --from=builder /app /app
+# COPY --from=builder /usr/local/bin/start.sh /usr/local/bin/start.sh
+# COPY ./docker/scripts/start.sh /usr/local/bin/start.sh
 # Use the project venv
 ENV VIRTUAL_ENV=/app/.venv \
     PATH="/app/.venv/bin:${PATH}"
 
 
 # entrypoint
-RUN chmod +x /usr/local/bin/start.sh \
- && mkdir -p /home/pwuser/screenshots /app/files/downloads /app/screenshots \
- && chown -R pwuser:pwuser /home/pwuser /app
+RUN mkdir -p /app/files/screenshots
+RUN mkdir -p /app/files/downloads
+RUN mkdir -p /app/screenshots
+RUN chown -R pwuser:pwuser /home/pwuser /app
 
 USER pwuser
 CMD ["/usr/local/bin/start.sh"]

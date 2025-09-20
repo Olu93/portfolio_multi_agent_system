@@ -19,6 +19,7 @@ langchain = "^0.3.27"
 fastapi = "^0.115.0"
 uvicorn = {extras = ["standard"], version = "^0.32.0"}
 httptools = "^0.6.4"
+retry = "^0.9.2"
 
 
 [tool.poetry.group.a2a.dependencies]
