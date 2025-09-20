@@ -63,7 +63,7 @@ class SupervisorAgent(BaseAgent):
         allow_caps = set(self.agent_config.get("allow_caps", []) or [])
         self.sub_agent_client = A2ASubAgentClient(httpx_client=httpx_client)
         tools, tool_configs = await self.sub_agent_client.build_tools_from_registry(allow_urls, allow_caps, REGISTRY_URL)
-        self.agent_config["tools"] = tool_configs
+        self.agent_config["skillset"] = tool_configs
         return tools
 
     async def build_graph(self) -> CompiledStateGraph:
