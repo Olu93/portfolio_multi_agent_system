@@ -129,10 +129,10 @@ def _connect_to_tools(tool_config_dict: dict):
 
     return reachable_tools, unreachable_tools
 
-def _retry_call(delay: int, tool_config_dict: dict, reachable_tools: list):
+def _retry_call(delay: int, tool_config_dict: dict, unreachable_tools: list):
     logger.warning(f"Retry after {delay} seconds")
     time.sleep(delay)
-    remainder_tools = {t: v for t, v in tool_config_dict.items() if (t, v["url"]) not in reachable_tools}
+    remainder_tools = {t: v for t, v in tool_config_dict.items() if (t, v["url"]) in unreachable_tools}
     reachable_tools, unreachable_tools = _connect_to_tools(remainder_tools)    
     return reachable_tools, unreachable_tools
 
