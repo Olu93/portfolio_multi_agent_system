@@ -33,7 +33,7 @@ services:
       - PORT=10000
     ports:
       - "10000:10000"
-      - "20001:5678"    # debugpy port for VS Code debugging
+      - "20000:5678"    # debugpy port for VS Code debugging
     volumes:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config:ro
@@ -71,8 +71,8 @@ services:
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}    
     ports:
-      - "20002:5678"    # debugpy port for VS Code debugging
-      - "10002:10020"
+      - "20001:5678"    # debugpy port for VS Code debugging
+      - "10001:10020"
     volumes:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config
@@ -111,8 +111,8 @@ services:
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}            
     # no ports section, internal only
     ports:
-      - "20003:5678"    # debugpy port for VS Code debugging
-      - "10003:10020" # agent inspector port for testing
+      - "20002:5678"    # debugpy port for VS Code debugging
+      - "10002:10020" # agent inspector port for testing
     volumes:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config
@@ -145,8 +145,8 @@ services:
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}      
     ports:
-      - "20004:5678"    # debugpy port for VS Code debugging
-      - "10004:10020" # agent inspector port for testing
+      - "20003:5678"    # debugpy port for VS Code debugging
+      - "10003:10020" # agent inspector port for testing
     volumes:
       - ./backend/src/a2a_servers:/app/a2a_servers
       - ./backend/config:/app/config
@@ -171,6 +171,39 @@ services:
       - REGISTRY_URL=${REGISTRY_URL}    
       - PYTHONPATH=/app
       - AGENT_NAME=web_search_agent
+      - AGENT_CONFIG_DIR=/app/config/
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LANGSMITH_TRACING=${LANGSMITH_TRACING}
+      - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}            
+    ports:
+      - "20004:5678"    # debugpy port for VS Code debugging
+      - "10004:10020" # agent inspector port for testing
+    volumes:
+      - ./backend/src/a2a_servers:/app/a2a_servers
+      - ./backend/config:/app/config
+    working_dir: /app
+    depends_on:
+      agent-registry:
+        condition: service_healthy
+    
+  persistence-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "a2a"
+        IS_PROD: ${IS_PROD}
+        CMD_MODULE: "a2a_servers.agent"
+        CMD_ARGS: "--agent-name persistence_agent"
+      # DEBUG_PY_ARGS: "--wait-for-client"
+    container_name: ohcm_persistence_agent
+    environment:
+      - URL=http://ohcm_persistence_agent:10020
+      - REGISTRY_URL=${REGISTRY_URL}    
+      - PYTHONPATH=/app
+      - AGENT_NAME=persistence_agent
       - AGENT_CONFIG_DIR=/app/config/
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - LANGSMITH_TRACING=${LANGSMITH_TRACING}
