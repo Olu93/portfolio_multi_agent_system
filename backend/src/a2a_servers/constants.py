@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 
-
 from a2a_servers import configure_logging
 
 configure_logging()

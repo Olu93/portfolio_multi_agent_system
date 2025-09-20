@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import time
 import uuid
 from typing import Any, AsyncIterable
 from urllib.parse import urlparse
@@ -176,6 +177,10 @@ def run_supervisor(agent_name: str):
         app = agent.http_handler
         return app
 
+    WAIT = 15
+    logger.info(f"Waiting for {WAIT} seconds to let the registry server register all the sub agents")
+    time.sleep(WAIT)
+    
     fastapi_app = asyncio.run(run_with_background_tasks())
 
     uvicorn.run(fastapi_app, host="0.0.0.0", port=PORT)
