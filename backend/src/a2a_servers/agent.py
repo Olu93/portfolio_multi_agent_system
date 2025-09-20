@@ -7,6 +7,7 @@ from typing import Any, AsyncIterable, Literal
 from urllib.parse import urlparse
 
 import click
+import httpx
 import requests
 import uvicorn
 from a2a.types import (
@@ -15,6 +16,13 @@ from a2a.types import (
     # DataPart,
     TaskState,
 )
+
+# from aioretry import (
+#     RetryInfo,
+#     # Tuple[bool, Union[int, float]]
+#     RetryPolicyStrategy,
+#     retry,
+# )
 from fastapi import FastAPI
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import StructuredTool
@@ -24,6 +32,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
 
+# from retry import retry
 from a2a_servers.a2a_client import (
     BaseAgent,
     ChunkMetadata,
@@ -32,6 +41,21 @@ from a2a_servers.a2a_client import (
 from a2a_servers.config_loader import (
     load_agent_config,
 )
+
+# # This example shows the usage with python typings
+# def retry_policy(info: RetryInfo) -> RetryPolicyStrategy:
+#     """
+#     - It will always retry until succeeded: abandon = False
+#     - If fails for the first time, it will retry immediately,
+#     - If it fails again,
+#       aioretry will perform a 100ms delay before the second retry,
+#       200ms delay before the 3rd retry,
+#       the 4th retry immediately,
+#       100ms delay before the 5th retry,
+#       etc...
+#     """
+#     return False, (info.fails - 1) % 3 * 0.1
+
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +109,25 @@ def _cleanup_expired_cache():
     if expired_keys:
         logger.info(f"Cleaned up {len(expired_keys)} expired cache entries")
 
+# @retry(exceptions=Exception, tries=3, delay=2, backoff=2, jitter=(0, 2), logger=logger)
+def _connect_to_tools(tool_config_dict: dict):
+    reachable_tools = []
+    unreachable_tools = []
+    for t, v in tool_config_dict.items():
+        logger.info(f"Checking if tool {t} is reachable at {v}")
+        try:
+            r = requests.head(v["url"])
+            if r.status_code != 200:
+                logger.exception(f"Tool {t} is not reachable at {v['url']}")
+                unreachable_tools.append((t, v["url"]))
+            else:
+                logger.info(f"Tool {t} is reachable at {v['url']}")
+                reachable_tools.append((t, v["url"]))
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Error checking if tool '{t}' is reachable at {v} - Error: {e}")
+            unreachable_tools.append((t, v["url"]))
+
+    return reachable_tools, unreachable_tools
 
 class ResponseFormat(BaseModel):
     """Respond to the user in this format."""
@@ -109,7 +152,9 @@ class SubAgent(BaseAgent):
         "Set response status to completed if the request is complete."
     )
 
+    # @retry(retry_policy)
     async def build_tools(self) -> list[StructuredTool]:
+        logger.info(f"Building tools for agent {self.name}")
         tool_config = self.agent_config.get("tools", [])
         tool_config_dict = {tool["name"]: tool["mcp_server"] for tool in tool_config}
         for tool in tool_config_dict:
@@ -118,8 +163,33 @@ class SubAgent(BaseAgent):
                     f"Tool {tool} is not using the correct URL format. Please use the correct URL format. The URL is {tool_config_dict[tool]['url']}"
                 )
         # BLOG: Assumes that all the MCP services are reachable and running. If not, the agent will fail to build. Explain how you could handle this differently
-        client = MultiServerMCPClient(tool_config_dict)
-        tools = await client.get_tools()
+        logger.info(f"Found {len(tool_config_dict)} tools to build")
+        reachable_tools, unreachable_tools = [], []
+        reachable_tools, unreachable_tools = _connect_to_tools(tool_config_dict)
+        if len(unreachable_tools):
+            delay = 3
+            logger.warning(f"Retry after {delay} seconds")
+            time.sleep(delay)
+            reaminder_tools = {t: v for t, v in tool_config_dict.items() if (t, v["url"]) not in reachable_tools}
+            reachable_tools, unreachable_tools = _connect_to_tools(reaminder_tools)
+            if len(unreachable_tools):
+                delay = 8
+                logger.warning(f"Retry after {delay} seconds")
+                time.sleep(delay)
+                reaminder_tools = {t: v for t, v in tool_config_dict.items() if (t, v["url"]) not in reachable_tools}
+                reachable_tools, unreachable_tools = _connect_to_tools(reaminder_tools)
+                if len(unreachable_tools):
+                    delay = 15
+                    logger.warning(f"Retry after {delay} seconds")
+                    time.sleep(delay)
+                    reaminder_tools = {t: v for t, v in tool_config_dict.items() if (t, v["url"]) not in reachable_tools}
+                    reachable_tools, unreachable_tools = _connect_to_tools(reaminder_tools)
+        logger.info(f"Found {len(reachable_tools)} reachable tools and {len(unreachable_tools)} unreachable tools")
+        if len(unreachable_tools) > 0:
+            logger.warning(f"Unreachable tools: {unreachable_tools}")
+        client = MultiServerMCPClient({t: v for t, v in tool_config_dict.items() if (t, v["url"]) in reachable_tools})
+        tools = await client.get_tools()        
+        logger.info(f"Received {len(tools)} tools for agent {self.name}")
         return tools
 
     async def build_graph(self) -> CompiledStateGraph:
@@ -235,6 +305,7 @@ def check_if_agent_registered(agent_card: AgentCard) -> bool:
         return False
 
 
+
 def check_and_maintain_registration(agent_card: AgentCard):
     """
     Unified function to check registration status and maintain agent health.
@@ -254,6 +325,7 @@ def check_and_maintain_registration(agent_card: AgentCard):
 
     cache_key = agent_card.url
     cached_registration = _get_cached_registration(cache_key)
+    logger.info(f"Cached registration for agent {agent_card.name} is {cached_registration}")
 
     try:
         # Step 1: Always check if agent is actually registered (don't trust cache blindly)
@@ -310,10 +382,15 @@ def check_and_maintain_registration(agent_card: AgentCard):
         else:
             logger.warning(f"Agent {agent_card.name} is not registered, skipping heartbeat")
 
+    except httpx.ConnectError as e:
+        logger.error(f"Error connecting to registry {REGISTRY_URL} for agent {agent_card.name} with agent url {agent_card.url}: {e}")
+        raise e
+    
     except Exception as e:
         logger.error(
             f"Unexpected error in check_and_maintain_registration for agent {agent_card.name} in registry {REGISTRY_URL} with agent url {agent_card.url}: {e}"
         )
+    
 
 
 @click.command()
