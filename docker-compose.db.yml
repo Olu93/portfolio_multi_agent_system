@@ -1,18 +1,28 @@
 services:
 
   postgres-mcp:
-    image: crystaldba/postgres-mcp
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        POETRY_GROUPS: "mcp"
+        IS_PROD: ${IS_PROD}
+        CMD_MODULE: "postgres"
+        CMD_ARGS: ""
+        DEBUG_PY_ARGS: ""
     container_name: ohcm_postgres_mcp
     depends_on:
       - db
     environment:
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-      - DATABASE_URI=postgres://app:app@ohcm_postgres_db:5432/app
+      - DB_CONNECTION_STRING=postgresql://app:app@ohcm_postgres_db:5432/app
+      - PYTHONPATH=/app
+    ports:
+      - "20018:5678"    # debugpy port for VS Code debugging
     volumes:
       - ./backend/src/mcp_servers:/app/mcp_servers
     working_dir: /app/mcp_servers
-    command: ["--access-mode=unrestricted", "--transport=sse"]
 
   db:
     image: postgres:17

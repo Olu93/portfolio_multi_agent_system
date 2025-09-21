@@ -43,6 +43,10 @@ class State(TypedDict):
     task_id: Annotated[str | None, lambda old, new: new if new is not None else old]
 
 
+class ModelResponse(BaseModel):
+    status: TaskState = Field(..., example=TaskState.working)
+    content: str
+
 class ChunkMetadata(BaseModel):
     message_type: str = Field("message", example="tool_stream")
     step_number: int = Field(0, example=0)
@@ -53,7 +57,7 @@ class ChunkResponse(BaseModel):
     status: TaskState = Field(..., example=TaskState.working)
     content: str
     tool_name: Optional[str] = None
-    metadata: ChunkMetadata = Field(..., example={"message_type": "tool_stream", "step_number": 0, "sub_task_id": "123"})
+    metadata: Optional[ChunkMetadata] = Field(..., example={"message_type": "tool_stream", "step_number": 0, "sub_task_id": "123"})
 
 
 class ToolEmission(BaseModel):

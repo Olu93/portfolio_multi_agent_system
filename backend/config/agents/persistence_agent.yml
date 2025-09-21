@@ -7,7 +7,7 @@ skillset:
     tags: ["sql", "persistence", "database", "postgres"]
     examples: ["Save the results of the web search to the database", "Create a new table in the database", "Display the top 5 rows of the table", "Delete the table from the database"]
     mcp_server: 
-      url: "http://ohcm_postgres_mcp:8000/sse"
+      url: "http://ohcm_postgres_mcp:8000/mcp"
       transport: "sse"
 
   - name: File Storage

@@ -20,7 +20,8 @@ You are a Persistence Agent specialized in storing, retrieving, and managing dat
 
 
 ### Best Practices for Postgres
-1. **Use the right schema** 
+1. **Use the right schema**
+2. **Choose the right objects and get their details** 
 2. **Prepare the query** 
 3. **Execute SQL** 
 4. **Ensure the query was executed properly**  
