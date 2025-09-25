@@ -107,7 +107,8 @@ class PostgreSQLClient:
             'pg_temp_1', 
             'pg_toast_temp_1',
             'pg_statistic',
-            'pg_public'
+            'pg_public',
+            'public'
         )
         AND s.schema_name NOT LIKE 'pg_temp_%'
         AND s.schema_name NOT LIKE 'pg_toast_temp_%'
@@ -486,10 +487,10 @@ class PostgreSQLClient:
         )
 
 
-    async def execute_sql(self, sql: str, params: tuple = ()) -> Dict[str, Any]:
+    async def execute_sql(self, sql: str) -> Dict[str, Any]:
         """Execute arbitrary SQL and return results"""
         try:
-            results = await self.execute_query(sql, params)
+            results = await self.execute_query(sql)
             return {
                 "status": "success",
                 "rows_affected": len(results),
@@ -510,7 +511,7 @@ mcp = FastMCP("postgres", host=MCP_HOST, port=MCP_PORT)
 # Initialize the PostgreSQL client
 db_client = PostgreSQLClient()
 
-
+# BLOG: Explain how to make this scalable by using caching
 @mcp.tool()
 async def list_schemas(ctx: Context) -> MCPResponse:
     """
@@ -642,13 +643,12 @@ async def list_object_details(
 
 
 @mcp.tool()
-async def execute_sql(sql: str, ctx: Context, params: str = "") -> MCPResponse:
+async def execute_sql(sql: str, ctx: Context) -> MCPResponse:
     """
     Execute arbitrary SQL query on the PostgreSQL database with full error handling and parameterization
     
     Args:
         sql: The SQL query to execute (supports SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc.)
-        params: Optional comma-separated parameters for parameterized queries (e.g., "value1,value2,value3")
         
     Returns:
         Query execution results including:
@@ -658,19 +658,14 @@ async def execute_sql(sql: str, ctx: Context, params: str = "") -> MCPResponse:
         - Error message: Detailed error information if execution failed
         
     Examples:
-        - SELECT * FROM users WHERE id = $1 with params "123"
-        - INSERT INTO logs (message, level) VALUES ($1, $2) with params "error occurred,error"
+        - SELECT * FROM users WHERE id = 123
+        - INSERT INTO logs (message, level) VALUES ("error occurred", "error")
         - CREATE TABLE test (id SERIAL PRIMARY KEY, name TEXT)
     """
     try:
         await log(f"Executing SQL query: {sql[:100]}...", "info", logger, ctx)
         
-        # Parse parameters if provided
-        param_list = ()
-        if params:
-            param_list = tuple(params.split(','))
-        
-        result = await db_client.execute_sql(sql, param_list)
+        result = await db_client.execute_sql(sql)
         
         if result["status"] == "success":
             await log(f"SQL query executed successfully, {result['rows_affected']} rows returned", "info", logger, ctx)

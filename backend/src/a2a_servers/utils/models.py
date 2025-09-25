@@ -1,4 +1,4 @@
-from typing import Annotated, Callable, Optional, TypedDict
+from typing import Annotated, Callable, Literal, Optional, TypedDict
 
 from a2a.types import Message, Task, TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent
 from langgraph.graph import add_messages
@@ -47,6 +47,7 @@ class ModelResponse(BaseModel):
     status: TaskState = Field(..., example=TaskState.working)
     content: str
 
+
 class ChunkMetadata(BaseModel):
     message_type: str = Field("message", example="tool_stream")
     step_number: int = Field(0, example=0)
@@ -54,10 +55,14 @@ class ChunkMetadata(BaseModel):
 
 
 class ChunkResponse(BaseModel):
-    status: TaskState = Field(..., example=TaskState.working)
+    status: Literal["submitted", "working", "input-required", "completed", "canceled", "failed", "rejected", "auth-required", "unknown"] = Field(
+        ...,
+        example="working",
+        description="The status of the event. Only allowed values are: submitted, working, input-required, completed, canceled, failed, rejected, auth-required, unknown. Errors are mapped to 'failed'.",
+    )
     content: str
     tool_name: Optional[str] = None
-    metadata: Optional[ChunkMetadata] = Field(..., example={"message_type": "tool_stream", "step_number": 0, "sub_task_id": "123"})
+    metadata: Optional[ChunkMetadata] = Field(None, example={"message_type": "tool_stream", "step_number": 0, "sub_task_id": "123"})
 
 
 class ToolEmission(BaseModel):

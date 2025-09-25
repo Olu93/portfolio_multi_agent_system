@@ -52,6 +52,9 @@ services:
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
       - PYTHONPATH=/app
+      - CALDAV_URL=${CALDAV_URL}
+      - CALDAV_USER=${CALDAV_USER}
+      - CALDAV_PASSWORD=${CALDAV_PASSWORD}
     ports:
       - "20011:5678"    # debugpy port for VS Code debugging
     volumes:

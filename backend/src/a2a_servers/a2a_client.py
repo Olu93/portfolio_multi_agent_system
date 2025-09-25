@@ -384,8 +384,9 @@ class BaseAgent:
                 "Make sure to ask for more input if not enough information was provided to execute the task."
             ),
         )
+        err_prompt = "If you repeatedly fail to fulfill your task and the user can't help you, be honest and provide a response that you cannot fulfill the task and mention the reason."
         prompt_config = load_prompt_config(self.agent_config.get("prompt_file", f"{self.name}.txt"))
-        self.prompt = f"{meta_prompt}\n\n{prompt_config}"
+        self.prompt = f"{meta_prompt}\n{err_prompt}\n\n{prompt_config}"
         return self.prompt
 
     async def build_model(self) -> BaseChatModel:

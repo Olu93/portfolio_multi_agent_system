@@ -456,7 +456,7 @@ try:
 except Exception as e:
     caldav_server = None
     caldav_configured = False
-    log(f"Warning: CalDAV server not configured: {e}", "warning", logger, None)
+    logger.warning(f"Warning: CalDAV server not configured: {e}")
 
 
 @mcp.tool()
@@ -771,13 +771,14 @@ async def main():
 
     def log_info():
         if not caldav_configured:
-            log("WARNING: CalDAV server is not properly configured!", "warning", logger, None)
-            log("Please set the following environment variables:", "info", logger, None)
-            log("  CALDAV_URL - Your CalDAV server URL", "info", logger, None)
-            log("  CALDAV_USER - Your CalDAV username", "info", logger, None)
-            log("  CALDAV_PASSWORD - Your CalDAV password", "info", logger, None)
-            log("  MCP_HOST - MCP server host (default: localhost)", "info", logger, None)
-            log("  MCP_PORT - MCP server port (default: 8009)", "info", logger, None)
+            logger.warning("WARNING: CalDAV server is not properly configured!")
+            logger.info("Please set the following environment variables:")
+            logger.info(f"  CALDAV_URL - Your CalDAV server URL. Current value: {CALDAV_URL}")
+            logger.info(f"  CALDAV_USER - Your CalDAV username. Current value: {CALDAV_USER}")
+            logger.info(f"  CALDAV_PASSWORD - Your CalDAV password. Current value: {CALDAV_PASSWORD}")
+            logger.info(f"  MCP_HOST - MCP server host. Current value: {MCP_HOST}")
+            logger.info(f"  MCP_PORT - MCP server port. Current value: {MCP_PORT}")
+
 
     await start_mcp_server(mcp, MCP_HOST, MCP_PORT, logger, log_info)
 
